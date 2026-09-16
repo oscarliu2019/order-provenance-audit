@@ -1,0 +1,177 @@
+# =============================================================================
+# OrderAudit experiment grid.
+#
+# The object of study is a *pipeline defect*, not a forecasting model: a
+# non-deterministic evaluation loader silently permutes the per-window error
+# vector that downstream per-window analyses join positionally.
+#
+# The grid therefore has two jobs:
+#   (E1) produce many real per-window error sequences, over datasets / horizons
+#        / backbones / plugin arms, so the detector can be calibrated and its
+#        power measured on realistic data rather than on synthetic AR(1) draws;
+#   (E2) produce *paired* training runs that differ only in whether the
+#        validation loader consumed global RNG (`val_order: shuffled` vs
+#        `deterministic`), so the cost of repairing the defect is measurable.
+# =============================================================================
+
+meta:
+  project: OrderAudit
+  version: "1.0.0"
+  protocol:
+    task_name: long_term_forecast
+    features: M            # multivariate -> multivariate
+    seq_len: 96            # ILI overrides to 36
+    label_len: 48
+    train_epochs: 10
+    patience: 3
+    learning_rate: 0.0001
+    lradj: type1
+    loss: MSE
+    num_workers: 2
+    inverse: false
+    # Upstream Time-Series-Library sets drop_last=False for every split, so the
+    # recorded per-window vector always has the full window count. That is
+    # exactly why a length check cannot see the defect.
+    drop_last_eval: false
+
+datasets:
+  - name: ETTh1
+    tslib_data: ETTh1
+    root_path: data/ETT-small
+    data_path: ETTh1.csv
+    enc_in: 7
+    total_len: 17420
+    freq: h
+    seq_len: 96
+    horizons: [96, 192, 336, 720]
+    batch_size: 32
+  - name: ETTh2
+    tslib_data: ETTh2
+    root_path: data/ETT-small
+    data_path: ETTh2.csv
+    enc_in: 7
+    total_len: 17420
+    freq: h
+    seq_len: 96
+    horizons: [96, 192, 336, 720]
+    batch_size: 32
+  - name: ETTm1
+    tslib_data: ETTm1
+    root_path: data/ETT-small
+    data_path: ETTm1.csv
+    enc_in: 7
+    total_len: 69680
+    freq: t
+    seq_len: 96
+    horizons: [96, 192, 336, 720]
+    batch_size: 32
+  - name: ETTm2
+    tslib_data: ETTm2
+    root_path: data/ETT-small
+    data_path: ETTm2.csv
+    enc_in: 7
+    total_len: 69680
+    freq: t
+    seq_len: 96
+    horizons: [96, 192, 336, 720]
+    batch_size: 32
+  - name: Weather
+    tslib_data: custom
+    root_path: data/weather
+    data_path: weather.csv
+    enc_in: 21
+    total_len: 52696
+    freq: t
+    seq_len: 96
+    horizons: [96, 192, 336, 720]
+    batch_size: 32
+  - name: Exchange
+    tslib_data: custom
+    root_path: data/exchange_rate
+    data_path: exchange_rate.csv
+    enc_in: 8
+    total_len: 7588
+    freq: d
+    seq_len: 96
+    horizons: [96, 192, 336, 720]
+    batch_size: 32
+  - name: ILI
+    tslib_data: custom
+    root_path: data/illness
+    data_path: national_illness.csv
+    enc_in: 7
+    total_len: 966
+    freq: w
+    seq_len: 36
+    label_len: 18
+    horizons: [24, 36, 48, 60]
+    batch_size: 32
+
+backbones:
+  - name: DLinear
+    hparams: {d_model: 512, d_ff: 2048, e_layers: 2, d_layers: 1, n_heads: 8, factor: 3}
+  - name: PatchTST
+    hparams: {d_model: 128, d_ff: 256, e_layers: 1, d_layers: 1, n_heads: 4, factor: 3, patch_len: 16}
+  - name: iTransformer
+    hparams: {d_model: 512, d_ff: 512, e_layers: 3, d_layers: 1, n_heads: 8, factor: 3}
+
+# Plugin arms exist only to give the downstream selector something to choose
+# between: the defect is about how per-window errors of several arms are joined,
+# so at least two arms per cell are required for the control-degeneration study.
+plugins:
+  - name: none
+    impl: none
+    params: {}
+  - name: revin
+    impl: revin
+    params: {affine: true}
+  - name: fredf
+    impl: fredf
+    params: {alpha: 0.5}
+  - name: san_lite
+    impl: san_lite
+    params: {period_len: 24}
+
+# -----------------------------------------------------------------------------
+# Stage E1: sequence bank for detector calibration and power.
+# One seed, wide coverage of (dataset x horizon x backbone x arm).
+# -----------------------------------------------------------------------------
+stage_e1:
+  seeds: [2021]
+  val_order: deterministic
+  cells:
+    - backbone: DLinear
+      datasets: [ETTh1, ETTh2, ETTm1, ETTm2, Weather, Exchange, ILI]
+      horizons: all
+      plugins: [none, revin, fredf, san_lite]
+    - backbone: PatchTST
+      datasets: [ETTh1, ETTh2, ETTm1, ETTm2, Weather, Exchange, ILI]
+      horizons: [first, third]
+      plugins: [none, fredf, san_lite]
+    - backbone: iTransformer
+      datasets: [ETTh1, ETTh2, ETTm1, ETTm2, Weather, Exchange, ILI]
+      horizons: [first, third]
+      plugins: [none, fredf, san_lite]
+
+# -----------------------------------------------------------------------------
+# Stage E2: paired runs isolating the RNG coupling of the evaluation loader.
+# Identical seed, identical data, identical model; the only difference is
+# whether the per-epoch validation pass drew a permutation from the global RNG.
+# -----------------------------------------------------------------------------
+stage_e2:
+  seeds: [2021, 2022, 2023]
+  val_orders: [deterministic, shuffled]
+  cells:
+    - backbone: DLinear
+      datasets: [ETTh1, ETTh2, ETTm1, ETTm2]
+      horizons: [first, third]
+      plugins: [none, revin, fredf, san_lite]
+
+paths:
+  tslib_root: third_party/tslib
+  data_root: data
+  runs_dir: runs
+  cells_dir: results/cells
+  results_csv: results/runs.csv
+  winerr_dir: results/winerr
+  artifacts_dir: artifacts

@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.scratch/
+logs/
+data/
+paper/*.aux
+paper/*.log
+paper/*.blg
+paper/*.out
+paper/*.abs
+paper/*.spl
+paper/*.bbl
+paper/*.blg
+paper/*.synctex.gz
+paper/*.fdb_latexmk
+paper/*.fls

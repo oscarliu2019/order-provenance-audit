@@ -1,0 +1,17 @@
+# Pinned to the minor versions this study was run against.
+numpy>=1.24,<3
+pandas>=2.0,<3
+scipy>=1.10
+scikit-learn>=1.3
+statsmodels>=0.14
+matplotlib>=3.7
+PyYAML>=6.0
+pytest>=7.4
+# training only (not needed to re-derive the paper's numbers)
+torch>=2.0
+einops>=0.6
+patool>=1.12
+tqdm>=4.65
+sktime>=0.24
+PyWavelets>=1.4
+reformer-pytorch>=1.4

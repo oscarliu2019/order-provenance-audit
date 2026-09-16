@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ETTh2_h720_san_lite_s2021_det",
+  "n_windows": 2161,
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

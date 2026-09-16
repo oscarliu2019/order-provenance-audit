@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+title: "Silent order corruption in per-sample evaluation artefacts: why the standard negative control cannot detect it, and two tests that can"
+message: "If you use this software or its artefacts, please cite the manuscript."
+authors:
+  - family-names: Liu
+    given-names: Mianhan
+  - family-names: Chen
+    given-names: Chen
+year: 2026
+license: MIT
+repository-code: "https://github.com/oscarliu2019/order-provenance-audit"
+keywords:
+  - reproducibility
+  - evaluation pipelines
+  - silent faults
+  - data provenance
+  - negative controls
+  - time series forecasting

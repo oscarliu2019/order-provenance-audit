@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ETTh1_h96_san_lite_s2023_shuf",
+  "n_windows": 2785,
+  "order": "loader",
+  "split": "val",
+  "val_order": "shuffled"
+}

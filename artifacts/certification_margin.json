@@ -1,0 +1,9 @@
+{
+  "min_z_clean": 46.189959843212016,
+  "median_z_clean": 52.76798766588243,
+  "max_z_corrupted": 4.1974324984021445,
+  "min_r_clean": 0.9887410366950092,
+  "median_r_clean": 0.9986549728696136,
+  "median_r_corrupted": -0.00014099663961249998,
+  "min_n_clean": 2161
+}

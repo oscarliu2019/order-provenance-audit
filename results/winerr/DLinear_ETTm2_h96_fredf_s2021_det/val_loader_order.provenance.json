@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ETTm2_h96_fredf_s2021_det",
+  "n_windows": 11425,
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}
