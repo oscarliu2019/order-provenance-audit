@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_Weather_h192_none_s2021_det",
+  "n_windows": 10348,
+  "order": "index",
+  "split": "test",
+  "val_order": "deterministic"
+}

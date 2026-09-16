@@ -31,17 +31,23 @@ validate exactly this kind of analysis. A per-sample null result accompanied by 
 well-behaved negative control is therefore exactly as consistent with a broken
 join as with a true null; the control cannot fail. We are not aware of a prior
 statement of this degeneracy, and we verify it with equivalence tests rather than
-with a failure to reject.
+with a failure to reject. We also isolate the single case in which the defect and
+the control do differ — analyses whose label is derived from several independently
+written vectors, per-sample arm selection being the common instance — and show
+that the difference runs the wrong way: the control preserves the label law and
+therefore reports a *milder* failure than the fault produces, which we confirm
+both theoretically and on the label distributions of our grid.
 
 **It delivers tooling with measured error rates.** We give two post-hoc tests that
 read only the stored vectors — one exploiting the serial dependence that
 overlapping windows induce, with exact randomisation moments and hence an O(n)
 p-value, and one exploiting cross-arm agreement, which needs no serial structure —
 together with a minimal write-side provenance contract that makes the positional
-join fail closed. On 388 single-GPU training runs across seven public benchmarks,
-three backbones and four arms, the battery separates intact from permuted
-artefacts by orders of magnitude, remains usable at a level of 1e-12, and detects
-corruptions far milder than a full permutation. We also quantify a maintenance
+join fail closed. On 356 single-GPU training runs (21.3 GPU hours) across seven
+public benchmarks, three backbones and four arms — 712 audited error vectors
+covering 4.27 M evaluation windows — the battery separates intact from permuted
+artefacts by orders of magnitude, achieves perfect separation at a level of 1e-6,
+and detects corruptions far milder than a full permutation. We also quantify a maintenance
 trap: the obvious one-line repair changes the random stream and therefore the
 reported test error, so a maintainer must re-run rather than patch.
 

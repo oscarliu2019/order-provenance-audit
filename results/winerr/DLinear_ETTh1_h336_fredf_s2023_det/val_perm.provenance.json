@@ -1,0 +1,8 @@
+{
+  "cell_id": "DLinear_ETTh1_h336_fredf_s2023_det",
+  "n_windows": 2545,
+  "note": "dataset index of the window at each loader position",
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

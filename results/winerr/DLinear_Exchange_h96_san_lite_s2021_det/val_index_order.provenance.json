@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_Exchange_h96_san_lite_s2021_det",
+  "n_windows": 665,
+  "order": "index",
+  "split": "val",
+  "val_order": "deterministic"
+}

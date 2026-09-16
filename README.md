@@ -30,11 +30,16 @@ Nothing catches it:
 * the shape check passes, because `drop_last=False` keeps the length equal to `n`;
 * and the canonical **shuffled-feature negative control is equal in distribution
   to the defect**, so the control that is supposed to protect the analysis
-  provably cannot fail (Proposition 5 in the paper).
+  provably cannot fail (Proposition 5 in the paper);
+* and when the analysis derives its label from several independently written
+  vectors — per-sample arm selection is the common case — the control is worse than
+  powerless: it keeps the label law intact and therefore reports a *milder* failure
+  than the defect causes (Proposition 7).
 
 What survives is structure the aggregate throws away. Consecutive sliding windows
 overlap, so per-window errors are serially dependent (median lag-1 correlation
-`0.999` in our runs) and a permutation destroys it — that is **AOT**. Several arms
+`0.9975` over 712 real sequences and 4.27 M windows) and a permutation destroys it
+— that is **AOT**. Several arms
 evaluated on the same windows agree on which windows are hard — that is **CAT**.
 Both read only the stored vectors: no model, no data, no rerun.
 
@@ -62,7 +67,8 @@ tools/
   paper_assets.py         artifacts -> paper/numbers.tex, tables, figures
   verify_paper_numbers.py independent re-derivation of every claim
 tests/          57 tests; the propositions as executable statements
-artifacts/      every CSV/JSON the paper cites
+artifacts/      every CSV/JSON the paper cites (incl. label_law.csv, the
+                mechanism behind Proposition 7)
 results/
   winerr/         per-window error vectors + provenance sidecars (auditable as-is)
   cells/, runs/   per-run metadata
@@ -106,8 +112,8 @@ python scripts/run_grid.py --stage e2 --jobs 4    # paired deterministic/shuffle
 python tools/make_artifacts.py all
 ```
 
-One NVIDIA V100 (32 GB) is enough; the full grid is reported in Table 1 of the
-paper. Cells are independent subprocesses and completed cells are skipped, so the
+One NVIDIA V100 (32 GB) is enough: the full grid in the paper is 356 runs and
+21.3 GPU hours, reported in Table 1. Cells are independent subprocesses and completed cells are skipped, so the
 sweep is restartable.
 
 ## Using the contract in your own code
@@ -134,7 +140,7 @@ artefact you did not produce:
 
 ```python
 from src.detect import aot, cat
-aot(err)["p"]      # < 1e-12 for an intact overlapping-window sequence
+aot(err)["p"]      # < 1e-6 for every intact overlapping-window sequence we saw
 cat(err_matrix)    # several arms, same windows
 ```
 

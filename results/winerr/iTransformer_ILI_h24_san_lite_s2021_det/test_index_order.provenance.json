@@ -1,0 +1,7 @@
+{
+  "cell_id": "iTransformer_ILI_h24_san_lite_s2021_det",
+  "n_windows": 170,
+  "order": "index",
+  "split": "test",
+  "val_order": "deterministic"
+}

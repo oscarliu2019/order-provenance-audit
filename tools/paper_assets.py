@@ -113,6 +113,11 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
             n[f"NumCleanCert{tag}"] = round(float(row["clean_certified_pct"].iloc[0]), 1)
             n[f"NumCorruptCert{tag}"] = round(float(row["corrupted_certified_pct"].iloc[0]), 2)
 
+    # sequences the strictest level fails to certify are the shortest ones
+    strict = clean[clean["p"] >= 1e-12]
+    n["NumCertTwelveMissSeq"] = int(len(strict))
+    n["NumCertTwelveMissMaxN"] = int(strict["n"].max()) if len(strict) else 0
+
     n["NumCalibSeq"] = int(len(cal))
     n["NumCalibMaxAbsDiff"] = round(float((cal["p_normal"] - cal["p_perm"]).abs().max()), 4)
     n["NumCalibFprNormal"] = round(float(100 * (cal["p_normal"] < ALPHA).mean()), 2)
@@ -149,6 +154,10 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     n["NumCatCertCorruptPct"] = round(float(100 * (cd["p"] < ALPHA).mean()), 2)
     n["NumCatPairs"] = int(len(pairs))
     n["NumCatPairRhoMedian"] = round(float(pairs["rho_bar"].median()), 4)
+    miss = cc[cc["p"] >= ALPHA]
+    n["NumCatMissGroups"] = int(len(miss))
+    n["NumCatMissMaxN"] = int(miss["n"].max()) if len(miss) else 0
+    n["NumCatMinN"] = int(cc["n"].min())
 
     # ---- battery ---- #
     if len(bat):
@@ -191,6 +200,9 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     n["NumTaskOneTransferTostMargin"] = float(eq_tr["margin"])
     n["NumTaskOneTransferTostCiLow"] = round(float(eq_tr["ci95_low"]), 4)
     n["NumTaskOneTransferTostCiHigh"] = round(float(eq_tr["ci95_high"]), 4)
+    n["NumTaskOneTransferTostN"] = int(eq_tr["n"])
+    n["NumTaskOneTransferTostMeanDiff"] = round(float(eq_tr["mean_diff"]), 5)
+    n["NumTaskOneTransferTostP"] = float(f"{eq_tr['p_tost']:.3g}")
 
     # ---- T2 ---- #
     n["NumTaskTwoBlocks"] = int(len(t2[t2["condition"] == "index"]))
@@ -201,13 +213,36 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
         n[f"NumTaskTwoGain{tag}PosPct"] = round(
             float(100 * (g["rel_gain_vs_best_fixed"] > 0).mean()), 1
         )
-    idx = t2[t2["condition"] == "index"]["rel_gain_vs_best_fixed"].to_numpy()
+    idx_rows = t2[t2["condition"] == "index"]
+    idx = idx_rows["rel_gain_vs_best_fixed"].to_numpy()
     n["NumTaskTwoOracleHeadroomMedian"] = round(
         float(t2[t2["condition"] == "index"]["oracle_headroom_pct"].median()), 2
     )
     n["NumTaskTwoSignTestP"] = float(f"{stats.wilcoxon(idx).pvalue:.3g}")
     n["NumTaskTwoTostCiLow"] = round(float(eq_gain["ci95_low"]), 3)
     n["NumTaskTwoTostCiHigh"] = round(float(eq_gain["ci95_high"]), 3)
+    n["NumTaskTwoTostMargin"] = float(eq_gain["margin"])
+    n["NumTaskTwoTostMeanDiff"] = round(float(eq_gain["mean_diff"]), 3)
+    n["NumTaskTwoRandomPenaltyMedian"] = round(
+        float(
+            (
+                100
+                * (idx_rows["random_arm_mse"] - idx_rows["best_fixed_mse"])
+                / idx_rows["best_fixed_mse"]
+            ).median()
+        ),
+        2,
+    )
+
+    # ---- label law behind the T2 gap ---- #
+    lab = _read(cfg, "label_law.csv")
+    n["NumLabelBlocks"] = int(len(lab[lab["condition"] == "index"]))
+    n["NumLabelEntropyMax"] = round(float(np.log2(lab["n_arms"].max())), 2)
+    for cond, tag in (("index", "Index"), ("defect", "Defect")):
+        g = lab[lab["condition"] == cond]
+        n[f"NumLabelModal{tag}Pct"] = round(float(100 * g["modal_share"].mean()), 1)
+        n[f"NumLabelBestFixedShare{tag}Pct"] = round(float(100 * g["best_fixed_share"].mean()), 1)
+        n[f"NumLabelEntropy{tag}"] = round(float(g["entropy_bits"].mean()), 3)
 
     # ---- RNG tax ---- #
     n["NumTaxPairs"] = int(len(tax))

@@ -1,0 +1,7 @@
+{
+  "cell_id": "PatchTST_ILI_h48_fredf_s2021_det",
+  "n_windows": 50,
+  "order": "index",
+  "split": "val",
+  "val_order": "deterministic"
+}

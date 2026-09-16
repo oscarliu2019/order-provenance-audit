@@ -108,7 +108,10 @@ have identical length because the last partial batch is kept. Our central result
 is negative and structural: the permuted table is \emph{equal in distribution} to
 the table produced by the canonical shuffled-feature negative control, so a null
 result validated by its own negative control is exactly as consistent with a
-broken join as with a true null---the control cannot fail. We then show that the
+broken join as with a true null---the control cannot fail. When the analysis
+derives its label from several independently written vectors, the control is worse
+than powerless: it preserves the label law and so understates the damage. We then
+show that the
 information the aggregate throws away is recoverable, and give two cheap post-hoc
 tests that read only the stored vectors: an autocorrelation order test with exact
 randomisation moments, and a cross-arm agreement test for data with no serial
@@ -246,7 +249,11 @@ canonical shuffled-feature negative control are equal in distribution
 per-sample claim provably cannot detect this fault. To our knowledge this failure
 mode of negative controls has not been stated. We verify the equality empirically
 with equivalence tests rather than with a failure to reject
-(Section~\ref{sec:res-downstream}).
+(Section~\ref{sec:res-downstream}). We also identify the one case where the two
+differ---analyses whose label is derived from several independently written
+vectors, such as per-sample arm selection---and show that the difference runs the
+wrong way: the control preserves the label law and therefore reports a
+\emph{milder} failure than the defect causes (Proposition~\ref{prop:derived}).
 \item \textbf{Two post-hoc order tests with known error rates.} AOT, with exact
 randomisation moments and a closed-form power expression, and CAT, for data
 without serial structure. We calibrate both against Monte-Carlo nulls, map their
@@ -522,6 +529,55 @@ table. We use this in reverse in Section~\ref{sec:res-downstream}: we certify th
 equality predicted by Proposition~\ref{prop:degeneracy} instead of merely failing
 to reject it.
 
+\subsection{One exception, and it makes the control worse}
+\label{sec:derived}
+
+Proposition~\ref{prop:degeneracy} assumes the analysis consumes a single loss
+vector. Some per-sample analyses instead derive their target from several vectors
+that are produced by \emph{separate} runs---per-sample arm selection is the common
+case, where the label of window $i$ is the index of the arm with the smallest loss
+on that window. A defective pipeline permutes each of those vectors independently,
+because each arm is a separate process with its own loader, and that is a different
+object from a single permutation.
+
+\begin{proposition}[Derived labels: the control keeps the label law, the defect does
+not]
+\label{prop:derived}
+Fix $K$ arms evaluated on the same $n$ windows, let $\ell^{(k)}$ denote the
+index-order loss vector of arm $k$, and let $A_i = \arg\min_k \ell^{(k)}_i$ be the
+derived label. Let the permutations $\sigma_1,\dots,\sigma_K$ and $\pi$ be
+independent and uniform on $S_n$.
+\begin{enumerate}
+\item Under the shuffled-feature control the label vector is $(A_i)_i$ itself,
+      joined to the $\pi$-permuted feature rows; its law, and in particular the
+      marginal $\mathbb{P}(A_i = k)$, is unchanged.
+\item Under the defect the label is
+      $\tilde{A}_i = \arg\min_k \ell^{(k)}_{\sigma_k(i)}$. For each fixed $i$ the
+      $K$ entries $\ell^{(k)}_{\sigma_k(i)}$ are independent draws from the $K$
+      empirical marginals, so $\tilde{A}_i$ is distributed as the $\arg\min$ under
+      the \emph{product} of those marginals, not under their joint law.
+\end{enumerate}
+Consequently $D$ and $C$ are in general \emph{not} equal in distribution for
+derived-label analyses, and the discrepancy is signed: the control retains the
+cross-arm coupling that makes one arm systematically best, the defect destroys it.
+\end{proposition}
+
+\begin{pf}
+Part 1 is immediate: the control does not touch $\ell$. For part 2, fix $i$; each
+$\sigma_k(i)$ is uniform on $\{0,\dots,n-1\}$ and the $\sigma_k$ are independent, so
+the vector $(\ell^{(k)}_{\sigma_k(i)})_k$ has the product law of the $K$ empirical
+distributions, whereas $(\ell^{(k)}_i)_k$ is a draw from their joint law. Window
+difficulty is shared across arms, so the joint law is far from the product law, and
+the $\arg\min$ functional distinguishes them. \qed
+\end{pf}
+
+This does not rescue the control---it has no more power than before, since a null is
+still a null---but it removes the last consolation. For derived-label analyses the
+control is not a conservative stand-in for the defect: it preserves the label
+marginal and therefore the fallback of predicting the globally best arm, so it
+reports a \emph{milder} failure than the defect actually causes. We measure both
+effects in Section~\ref{sec:res-downstream}.
+
 The escape route is therefore not a better control on the joined table. It is to
 test the artefact's \emph{order} directly, before any join, using structure that
 the aggregate discards. That is the subject of the next section.
@@ -574,9 +630,9 @@ With power sums $S_k = \sum_i c_i^k$ (so $S_1 = 0$),
  - \frac{S_2^{2}}{(n-1)^{2}}\right],
 \label{eq:wwvar}
 \end{align}
-and $r$ is asymptotically normal under $H_0$ \citep{wald1943}. We report the
-one-sided $p$-value
-$p = 1 - \Phi\!\left((r - \mathbb{E}_{H_0}[r])/\sqrt{\operatorname{Var}_{H_0}[r]}\right)$,
+and $r$ is asymptotically normal under $H_0$ \citep{wald1943}. Writing
+$z = (r - \mathbb{E}_{H_0}[r])/\sqrt{\operatorname{Var}_{H_0}[r]}$, we report the
+one-sided $p$-value $p = 1 - \Phi(z)$,
 one-sided because the alternative created by intact overlapping windows is
 positive dependence. Evaluating \eqref{eq:r}--\eqref{eq:wwvar} costs one pass over
 the vector; on the longest sequences in our study
@@ -906,13 +962,20 @@ a log scale, with the $\alpha = 0.05$ and $\alpha = 10^{-12}$ thresholds.}
 At $\alpha = 0.05$ the test certifies $\NumCleanCertPct\%$ of intact sequences and
 $\NumCorruptCertPct\%$ of permuted ones---the latter is the nominal false
 certification rate, as it must be, since permuted sequences are drawn exactly from
-the null. Table~\ref{tab:cert} sweeps the level. The practically important row is
-the last: the intact signal is so far from the null that a threshold as extreme as
-$10^{-12}$ still certifies $\NumCleanCertAlphaTwelve\%$ of intact sequences while
-certifying $\NumCorruptCertAlphaTwelve\%$ of corrupted ones. A continuous
-integration job can therefore fail the build on order corruption without any
-realistic risk of a false alarm, which is the property a diagnostic needs to
-survive contact with a busy team.
+the null. Table~\ref{tab:cert} sweeps the level. The row to use in practice is
+$\alpha = 10^{-6}$: it separates the two populations \emph{perfectly} on our data,
+certifying $\NumCleanCertAlphaSix\%$ of intact sequences and
+$\NumCorruptCertAlphaSix\%$ of permuted ones, which is what the margin between
+$z_{\min} = \NumZMinClean{}$ on intact sequences and
+$z_{\max} = \NumZMaxCorrupt{}$ on permuted ones predicts. Pushing to
+$10^{-12}$ costs sensitivity only on the shortest artefacts:
+$\NumCleanCertAlphaTwelve\%$ of intact sequences are still certified, and every one
+of the \NumCertTwelveMissSeq{} that are not has at most $\NumCertTwelveMissMaxN{}$
+windows---AOT's evidence grows with $n$, and an evaluation split of a few dozen
+windows simply does not contain twelve orders of magnitude of it. A continuous integration
+job can therefore fail the build on order corruption without any realistic risk of
+a false alarm, which is the property a diagnostic needs to survive contact with a
+busy team.
 
 \begin{table}[t]
 \centering
@@ -952,13 +1015,16 @@ Generated from \texttt{artifacts/aot\_sensitivity.csv}.}
 \end{table}
 
 \emph{Cross-arm agreement.} On the \NumCatBlocks{} groups of arms evaluated against
-a common sample set, CAT gives median $\bar{\rho} = \NumCatRhoMedianClean{}$ with
-minimum $\NumCatRhoMinClean{}$, certifying $\NumCatCertCleanPct\%$ of groups; after
-independent per-arm permutation the median falls to
-$\NumCatRhoMedianCorrupt{}$ and $\NumCatCertCorruptPct\%$ are certified. The
-agreement is not driven by one dominant pair: across all \NumCatPairs{} individual
-arm pairs the median Spearman correlation is $\NumCatPairRhoMedian{}$. Sample
-difficulty dominating arm identity is a robust empirical regularity, and CAT
+a common sample set, CAT gives median $\bar{\rho} = \NumCatRhoMedianClean{}$,
+certifying $\NumCatCertCleanPct\%$ of groups; after independent per-arm permutation
+the median falls to $\NumCatRhoMedianCorrupt{}$ and $\NumCatCertCorruptPct\%$ are
+certified. \NumCatMissGroups{} intact group is not certified, and it is one of the
+shortest in the study ($n \le \NumCatMissMaxN{}$ windows, against a minimum of
+$\NumCatMinN{}$ over all groups), where four arms simply do not supply enough rank
+information; its $\bar{\rho}$ of $\NumCatRhoMinClean{}$ is the minimum over intact
+groups. The agreement is not driven by one dominant pair: across all \NumCatPairs{}
+individual arm pairs the median Spearman correlation is $\NumCatPairRhoMedian{}$.
+Sample difficulty dominating arm identity is a robust empirical regularity, and CAT
 converts it into a test.
 
 \subsection{Where each test stops working}
@@ -1000,7 +1066,8 @@ per-row noise is large while the pooled rate quoted in the body is not. Generate
 \centering
 \includegraphics[width=0.62\linewidth]{figs/battery}
 \caption{Certification rate against sub-sampling stride. AOT follows the overlap;
-CAT does not depend on it. Neither test certifies permuted input at any stride.}
+CAT does not depend on it. Permuted input is certified only at the nominal level,
+at every stride and by both tests.}
 \label{fig:battery}
 \end{figure}
 
@@ -1056,12 +1123,14 @@ the control, with an equivalence margin of $\NumTaskOneTostMargin{}$ Spearman un
 (a fifth of the intact effect), gives a mean difference of
 $\NumTaskOneTostMeanDiff{}$ with a $95\%$ confidence interval of
 $[\NumTaskOneTostCiLow{}, \NumTaskOneTostCiHigh{}]$ and $p = \NumTaskOneTostP{}$:
-the two conditions are statistically equivalent, not merely indistinguishable. On
-the predictive statistic the paired interval is
-$[\NumTaskOneTransferTostCiLow{}, \NumTaskOneTransferTostCiHigh{}]$ against a
-margin of $\NumTaskOneTransferTostMargin{}$; we report it as an interval rather
-than a verdict because the estimator's own variance across runs is large enough
-that our sample cannot certify equivalence at this margin, and we prefer to say so.
+the two conditions are statistically equivalent, not merely indistinguishable. The
+predictive statistic gives the same verdict on the
+\NumTaskOneTransferTostN{} runs where transfer rank agreement is defined: a mean
+paired difference of $\NumTaskOneTransferTostMeanDiff{}$ with interval
+$[\NumTaskOneTransferTostCiLow{}, \NumTaskOneTransferTostCiHigh{}]$ inside a margin
+of $\NumTaskOneTransferTostMargin{}$ and $p = \NumTaskOneTransferTostP{}$. Both the
+descriptive and the predictive reading of T1 therefore certify that the defect and
+the control are the same experiment.
 
 \emph{T2.} The decision analysis behaves the way Proposition~\ref{prop:attenuation}
 predicts. Over \NumTaskTwoBlocks{} groups, a per-sample gate trained on the correct
@@ -1071,23 +1140,46 @@ $\NumTaskTwoOracleHeadroomMedian\%$; a positive gain occurs in
 $\NumTaskTwoGainIndexPosPct\%$ of groups, and a Wilcoxon signed-rank test of the
 gain against zero gives $p = \NumTaskTwoSignTestP{}$. Under the defect the median
 gain is $\NumTaskTwoGainDefectMedian\%$ and under the control
-$\NumTaskTwoGainControlMedian\%$; the paired defect-versus-control interval is
-$[\NumTaskTwoTostCiLow{}, \NumTaskTwoTostCiHigh{}]$---wide, because a gate's
-realised error is a far noisier statistic than a correlation, so with this many
-groups we can say that neither condition produces a gain but cannot certify that
-the two are equivalent. We therefore draw a deliberately limited conclusion from
-T2: the defect and the standard control both yield the same kind of non-result and
-our sample cannot separate them, and T2 does \emph{not} establish that per-sample
-gating works when the join is correct. Our
-companion study \citep{companion2026} examines that question directly and answers
-it in the negative for legal feedback delays; the relevant point here is that the
-two explanations for a null gate---no learnable signal, or a permuted label
-column---are not distinguishable by anything reported in a conventional table, and
-are distinguishable in one line by AOT.
+$\NumTaskTwoGainControlMedian\%$: both are non-results, as
+Proposition~\ref{prop:attenuation} requires.
+
+Here, however, the defect and the control are \emph{not} interchangeable, and
+Proposition~\ref{prop:derived} says why. The paired defect-minus-control difference
+in gain is $\NumTaskTwoTostMeanDiff{}$ percentage points with interval
+$[\NumTaskTwoTostCiLow{}, \NumTaskTwoTostCiHigh{}]$, which excludes zero as well as
+the equivalence margin of $\NumTaskTwoTostMargin{}$: the defect is measurably
+\emph{worse} than the control, so here the equivalence test correctly declines to
+certify equivalence. The label law is where the difference lives. Over the
+\NumLabelBlocks{} groups, the per-window best-arm label under the correct join puts
+on average $\NumLabelModalIndexPct\%$ of its mass on its modal arm, with mean
+entropy $\NumLabelEntropyIndex{}$ bits out of a possible
+$\NumLabelEntropyMax{}$; under independent per-arm permutation the modal mass falls
+to $\NumLabelModalDefectPct\%$ and the entropy rises to $\NumLabelEntropyDefect{}$
+bits, and the share of windows won by the globally best fixed arm falls from
+$\NumLabelBestFixedShareIndexPct\%$ to $\NumLabelBestFixedShareDefectPct\%$. The
+defect thus flattens the label towards uniform, which is exactly the product-law
+statement of Proposition~\ref{prop:derived}. A gate trained on such labels
+distributes windows across arms nearly independently of arm quality, and the
+realised error drifts towards the uniform-arm baseline, which on this grid costs
+$\NumTaskTwoRandomPenaltyMedian\%$ relative to the best fixed arm. The control,
+which keeps the label intact and destroys only the features, degenerates to
+predicting the modal arm and therefore costs almost nothing. The reading is
+uncomfortable and worth stating plainly: for derived-label analyses the standard
+negative control is not merely powerless, it understates the damage. We draw a
+deliberately limited conclusion from T2---it does \emph{not} establish that
+per-sample gating works when the join is correct. Our companion study
+\citep{companion2026} examines that question directly and answers it in the negative
+for legal feedback delays; the relevant point here is that the two explanations for
+a null gate---no learnable signal, or a permuted label column---are not
+distinguishable by anything reported in a conventional table, and are
+distinguishable in one line by AOT.
 
 \begin{table}[t]
 \centering
 \caption{T2 under the three conditions, medians over \NumTaskTwoBlocks{} groups.
+Unlike T1, the \emph{defect} and \emph{control} columns are not two samples from
+the same distribution: the label here is derived from all arms, so
+Proposition~\ref{prop:derived} applies and the control is the milder condition.
 Generated from \texttt{artifacts/t2\_selection.csv}.}
 \label{tab:t2}
 \fitwidth{\input{tables/downstream_t2}}
@@ -1158,7 +1250,8 @@ it changes the experiment (Section~\ref{sec:res-tax}). (4) Run AOT on every stor
 per-sample vector and CAT on every group of arms as part of the test suite, at a
 conservative level. (5) When reporting a per-sample \emph{null}, state explicitly
 which order check was performed; a shuffled-feature control is not one
-(Corollary~\ref{cor:cannot}).
+(Corollary~\ref{cor:cannot}), and if the analysis selects among several arms the
+control is optimistic rather than conservative (Proposition~\ref{prop:derived}).
 
 \paragraph{For reviewers}
 When a paper reports a per-sample analysis---difficulty prediction, per-instance
@@ -1206,7 +1299,7 @@ holding the gate fixed.
 \paragraph{External}
 The empirical study is entirely within sliding-window multivariate forecasting on
 seven public benchmarks, three backbones and four arms. The formal results
-(Propositions~\ref{prop:invariance}--\ref{prop:degeneracy}) require only a
+(Propositions~\ref{prop:invariance}--\ref{prop:derived}) require only a
 per-sample artefact and a positional join, so they transfer verbatim to
 classification, ranking, retrieval or any other per-sample analysis; the
 \emph{power} of AOT does not, since it is a function of the serial dependence that
@@ -1316,18 +1409,21 @@ by construction, and, most importantly, the negative control that is supposed to
 protect the analysis is \emph{equal in distribution} to the fault it is meant to
 detect. A null result about per-sample structure, presented with a well-behaved
 shuffled-feature control, is therefore exactly as consistent with a broken join as
-with a true null, and nothing in a conventional table can separate the two.
+with a true null, and nothing in a conventional table can separate the two. The one
+class of analyses where the control does behave differently---those whose label is
+derived from several independently written vectors---is the class where it is most
+misleading, because there it reports a milder failure than the fault produces.
 
 The situation is repairable, cheaply, in two steps. Write-side: attach an order
 record to every per-sample artefact and refuse to load one for a positional join
 without it. Read-side, for artefacts that already exist: run the two tests we
 give. On \NumRuns{} runs the battery certifies $\NumCleanCertPct\%$ of intact
-sequences and $\NumCorruptCertPct\%$ of permuted ones at $\alpha = 0.05$, remains
-usable at $\alpha = 10^{-12}$, and detects corruptions far milder than a full
-permutation. We also found that the obvious one-line repair silently changes
-reported numbers by up to $\NumTaxMaxAbs\%$, so a maintainer must re-run rather
-than patch---or adopt the recorder, which fixes the artefact and leaves the run
-alone.
+sequences and $\NumCorruptCertPct\%$ of permuted ones at $\alpha = 0.05$, separates
+the two populations perfectly at $\alpha = 10^{-6}$, and detects corruptions far
+milder than a full permutation. We also found that the obvious one-line repair
+silently changes reported numbers by up to $\NumTaxMaxAbs\%$, so a maintainer must
+re-run rather than patch---or adopt the recorder, which fixes the artefact and
+leaves the run alone.
 
 Two directions follow. The first is mechanical and, we think, worth doing: run the
 battery over the per-sample artefacts that accompany published papers and measure

@@ -1,0 +1,7 @@
+{
+  "cell_id": "PatchTST_Weather_h96_san_lite_s2021_det",
+  "n_windows": 10444,
+  "order": "index",
+  "split": "test",
+  "val_order": "deterministic"
+}

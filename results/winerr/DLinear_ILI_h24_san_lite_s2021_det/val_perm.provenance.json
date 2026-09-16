@@ -1,0 +1,8 @@
+{
+  "cell_id": "DLinear_ILI_h24_san_lite_s2021_det",
+  "n_windows": 74,
+  "note": "dataset index of the window at each loader position",
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_Exchange_h720_fredf_s2021_det",
+  "n_windows": 41,
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

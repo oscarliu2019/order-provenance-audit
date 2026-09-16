@@ -1,0 +1,8 @@
+{
+  "cell_id": "DLinear_ETTh2_h336_san_lite_s2022_det",
+  "n_windows": 2545,
+  "note": "dataset index of the window at each loader position",
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

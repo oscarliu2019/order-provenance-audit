@@ -459,6 +459,74 @@ def cmd_downstream(cfg: GridConfig, args) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# label law: why a multi-arm control is optimistic rather than merely powerless
+# --------------------------------------------------------------------------- #
+def cmd_labellaw(cfg: GridConfig, args) -> None:
+    """Per-window best-arm labels under the correct join and under the defect.
+
+    The shuffled-feature control keeps the arms aligned, so its label vector is a
+    permutation of the correct one and its majority class is unchanged. A defective
+    pipeline permutes each arm independently, so the label is an argmin over
+    misaligned vectors. This records the label law of both, with no model fitting,
+    so the mechanism behind the T2 gap is checkable on its own.
+    """
+    runs = load_runs(cfg)
+    rows = []
+    for (blk, seed, order), g in runs.groupby(["block_id", "seed", "val_order"]):
+        g = g.sort_values("plugin")
+        arms, vs = [], []
+        for _, r in g.iterrows():
+            try:
+                vs.append(load_series(win_dir(cfg, r["cell_id"]), "val_index_order"))
+            except FileNotFoundError:
+                continue
+            arms.append(r["plugin"])
+        if len(arms) < 2:
+            continue
+        n = min(v.size for v in vs)
+        val = np.stack([v[:n] for v in vs])
+        best_fixed = int(np.argmin(val.mean(axis=1)))
+        rg = np.random.default_rng(int(abs(hash(("t2", blk, seed, order))) % 2**32))
+        perms = np.stack([rg.permutation(n) for _ in arms])
+        defect = np.stack([val[a][perms[a]] for a in range(len(arms))])
+
+        def law(mat: np.ndarray) -> dict[str, float]:
+            lab = np.argmin(mat, axis=0)
+            freq = np.bincount(lab, minlength=len(arms)) / lab.size
+            nz = freq[freq > 0]
+            return {
+                "modal_arm": int(np.argmax(freq)),
+                "modal_share": float(freq.max()),
+                "best_fixed_share": float(freq[best_fixed]),
+                "modal_is_best_fixed": bool(int(np.argmax(freq)) == best_fixed),
+                "entropy_bits": float(-(nz * np.log2(nz)).sum()),
+            }
+
+        for cond, mat in (("index", val), ("defect", defect)):
+            rows.append(
+                {
+                    "block_id": blk,
+                    "seed": int(seed),
+                    "val_order": order,
+                    "condition": cond,
+                    "n_arms": len(arms),
+                    "n": int(n),
+                    **law(mat),
+                }
+            )
+    df = pd.DataFrame(rows)
+    df.to_csv(_art(cfg) / "label_law.csv", index=False)
+    print(f"[labellaw] {len(df)} rows")
+    print(
+        df.groupby("condition")[
+            ["modal_share", "best_fixed_share", "modal_is_best_fixed", "entropy_bits"]
+        ]
+        .mean()
+        .to_string()
+    )
+
+
+# --------------------------------------------------------------------------- #
 # RNG tax
 # --------------------------------------------------------------------------- #
 def cmd_rngtax(cfg: GridConfig, args) -> None:
@@ -619,6 +687,7 @@ def cmd_all(cfg: GridConfig, args) -> None:
     cmd_cat(cfg, args)
     cmd_battery(cfg, args)
     cmd_downstream(cfg, args)
+    cmd_labellaw(cfg, args)
     cmd_rngtax(cfg, args)
 
 
@@ -626,8 +695,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "cmd",
-        choices=["runs", "features", "aot", "certify", "cat", "battery", "downstream", "rngtax",
-                 "all"],
+        choices=["runs", "features", "aot", "certify", "cat", "battery", "downstream",
+                 "labellaw", "rngtax", "all"],
     )
     ap.add_argument("--config", default=None)
     ap.add_argument("--n-perm", type=int, default=2000)
@@ -645,7 +714,7 @@ def main(argv=None) -> int:
     {
         "runs": cmd_runs, "features": cmd_features, "aot": cmd_aot, "certify": cmd_certify,
         "cat": cmd_cat, "battery": cmd_battery, "downstream": cmd_downstream,
-        "rngtax": cmd_rngtax, "all": cmd_all,
+        "labellaw": cmd_labellaw, "rngtax": cmd_rngtax, "all": cmd_all,
     }[a.cmd](cfg, a)
     return 0
 

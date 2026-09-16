@@ -46,6 +46,19 @@ def med(x) -> float:
     return float(np.median(np.asarray(x, dtype=float)))
 
 
+def nanmed(x) -> float:
+    """Median over the cells where the statistic is defined.
+
+    The transfer and hold-out Spearman statistics are undefined for cells whose
+    split is too short to fit and evaluate on disjoint halves (ILI), and those
+    cells are stored as NaN rather than dropped, so that the row count stays
+    equal to the number of cells.
+    """
+    a = np.asarray(x, dtype=float)
+    a = a[np.isfinite(a)]
+    return float(np.median(a))
+
+
 def pct(mask) -> float:
     return float(100.0 * np.mean(np.asarray(mask, dtype=float)))
 
@@ -75,6 +88,7 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
     t1 = R("t1_difficulty.csv")
     t2 = R("t2_selection.csv")
     tax = R("rng_tax.csv")
+    lab = R("label_law.csv")
     eqr = R("equivalence_t1_rho.csv").iloc[0]
     eqt = R("equivalence_t1_transfer.csv").iloc[0]
     eqg = R("equivalence_t2_gain.csv").iloc[0]
@@ -93,6 +107,9 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
 
     def t2c(cond: str) -> pd.DataFrame:
         return t2.loc[t2.condition == cond]
+
+    def labc(cond: str) -> pd.DataFrame:
+        return lab.loc[lab.condition == cond]
 
     # order-provenance masking, recomputed from the raw arrays
     mask_rel, mask_multiset, mask_len = [], [], []
@@ -150,8 +167,14 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumObservedSeq": int(len(obs)),
         "NumObservedRMedian": med(obs.r),
         "NumObservedCertPct": pct(obs.p < A),
+        "NumCleanCertAlphaSix": certrow(1e-6, "clean_certified_pct"),
+        "NumCorruptCertAlphaSix": certrow(1e-6, "corrupted_certified_pct"),
         "NumCleanCertAlphaTwelve": certrow(1e-12, "clean_certified_pct"),
         "NumCorruptCertAlphaTwelve": certrow(1e-12, "corrupted_certified_pct"),
+        "NumCertTwelveMissSeq": int((clean.p >= 1e-12).sum()),
+        "NumCertTwelveMissMaxN": int(clean.loc[clean.p >= 1e-12, "n"].max())
+        if int((clean.p >= 1e-12).sum())
+        else 0,
         "NumCalibSeq": int(len(cal)),
         "NumCalibMaxAbsDiff": float(np.abs(cal.p_normal - cal.p_perm).max()),
         "NumCalibFprNormal": pct(cal.p_normal < A),
@@ -173,6 +196,9 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumCatCertCorruptPct": pct(cd.p < A),
         "NumCatPairs": int(len(cp)),
         "NumCatPairRhoMedian": med(cp.rho_bar),
+        "NumCatMissGroups": int((ci.p >= A).sum()),
+        "NumCatMissMaxN": int(ci.loc[ci.p >= A, "n"].max()) if int((ci.p >= A).sum()) else 0,
+        "NumCatMinN": int(ci.n.min()),
         # ---- battery ---- #
         "NumBatAotStrideOne": 100.0 * float(bone.aot_certify_rate.mean()),
         "NumBatCatStrideOne": 100.0 * float(bone.cat_certify.mean()),
@@ -198,10 +224,10 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumTaskOneDecileDefectMedian": med(t1c("defect").decile_ratio_fstd),
         "NumTaskOneSigIndexPct": pct(t1c("index").assoc_p_fstd < A),
         "NumTaskOneSigDefectPct": pct(t1c("defect").assoc_p_fstd < A),
-        "NumTaskOneTransferIndexMedian": med(t1c("index").spearman_test),
-        "NumTaskOneTransferDefectMedian": med(t1c("defect").spearman_test),
-        "NumTaskOneHoldoutIndexMedian": med(t1c("index").spearman_holdout),
-        "NumTaskOneHoldoutDefectMedian": med(t1c("defect").spearman_holdout),
+        "NumTaskOneTransferIndexMedian": nanmed(t1c("index").spearman_test),
+        "NumTaskOneTransferDefectMedian": nanmed(t1c("defect").spearman_test),
+        "NumTaskOneHoldoutIndexMedian": nanmed(t1c("index").spearman_holdout),
+        "NumTaskOneHoldoutDefectMedian": nanmed(t1c("defect").spearman_holdout),
         "NumTaskOneTostMargin": float(eqr.margin),
         "NumTaskOneTostMeanDiff": float(eqr.mean_diff),
         "NumTaskOneTostCiLow": float(eqr.ci95_low),
@@ -210,6 +236,9 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumTaskOneTransferTostMargin": float(eqt.margin),
         "NumTaskOneTransferTostCiLow": float(eqt.ci95_low),
         "NumTaskOneTransferTostCiHigh": float(eqt.ci95_high),
+        "NumTaskOneTransferTostN": int(eqt.n),
+        "NumTaskOneTransferTostMeanDiff": float(eqt.mean_diff),
+        "NumTaskOneTransferTostP": float(eqt.p_tost),
         # ---- T2 ---- #
         "NumTaskTwoBlocks": int(len(t2c("index"))),
         "NumTaskTwoGainIndexMedian": med(t2c("index").rel_gain_vs_best_fixed),
@@ -220,6 +249,22 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumTaskTwoSignTestP": float(stats.wilcoxon(t2c("index").rel_gain_vs_best_fixed).pvalue),
         "NumTaskTwoTostCiLow": float(eqg.ci95_low),
         "NumTaskTwoTostCiHigh": float(eqg.ci95_high),
+        "NumTaskTwoTostMargin": float(eqg.margin),
+        "NumTaskTwoTostMeanDiff": float(eqg.mean_diff),
+        "NumTaskTwoRandomPenaltyMedian": med(
+            100.0
+            * (t2c("index").random_arm_mse - t2c("index").best_fixed_mse)
+            / t2c("index").best_fixed_mse
+        ),
+        # ---- label law ---- #
+        "NumLabelBlocks": int(len(lab.loc[lab.condition == "index"])),
+        "NumLabelEntropyMax": float(np.log2(int(lab.n_arms.max()))),
+        "NumLabelModalIndexPct": 100.0 * float(labc("index").modal_share.mean()),
+        "NumLabelModalDefectPct": 100.0 * float(labc("defect").modal_share.mean()),
+        "NumLabelBestFixedShareIndexPct": 100.0 * float(labc("index").best_fixed_share.mean()),
+        "NumLabelBestFixedShareDefectPct": 100.0 * float(labc("defect").best_fixed_share.mean()),
+        "NumLabelEntropyIndex": float(labc("index").entropy_bits.mean()),
+        "NumLabelEntropyDefect": float(labc("defect").entropy_bits.mean()),
         # ---- repair cost ---- #
         "NumTaxPairs": int(len(tax)),
         "NumTaxMedianAbs": med(tax.abs_rel_diff_pct),
@@ -231,10 +276,23 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumTaxWilcoxP": float(stats.wilcoxon(tax.mse_shuffled, tax.mse_deterministic).pvalue),
     }
 
-    # cross-check the two equivalence intervals against the raw paired data
-    piv = t1.pivot_table(index="cell_id", columns="condition", values="assoc_rho_fstd")
-    lo, hi = tost_ci((piv["defect"] - piv["control"]).dropna().to_numpy())
-    C["_xcheck_t1_ci"] = (lo, hi)
+    # cross-check the equivalence artefacts against the raw paired data: the
+    # intervals in equivalence_*.csv must be reproducible from the per-cell tables.
+    def paired(df: pd.DataFrame, value: str, key: str = "cell_id") -> np.ndarray:
+        d = df.copy()
+        d["_blk"] = d[key] + "_" + d.seed.astype(str) + "_" + d.val_order
+        p = d.pivot_table(index="_blk", columns="condition", values=value)
+        return (p["defect"] - p["control"]).dropna().to_numpy()
+
+    xc: dict[str, tuple[float, float, float]] = {}
+    for tag, arr in (
+        ("t1", paired(t1, "assoc_rho_fstd")),
+        ("t1transfer", paired(t1, "spearman_test")),
+        ("t2", paired(t2, "rel_gain_vs_best_fixed", key="block_id")),
+    ):
+        lo, hi = tost_ci(arr)
+        xc[tag] = (lo, hi, float(arr.mean()))
+    C["_xcheck"] = xc
     return C
 
 
@@ -259,7 +317,7 @@ def main(argv=None) -> int:
     defined = set(re.findall(r"\\newcommand\{\\(Num[A-Za-z]+)\}", tex))
     used = set(re.findall(r"\\(Num[A-Za-z]+)", body))
     checks = build_checks(cfg)
-    xcheck = checks.pop("_xcheck_t1_ci")
+    xcheck = checks.pop("_xcheck")
 
     problems: list[str] = []
     for m in sorted(used - defined):
@@ -289,15 +347,26 @@ def main(argv=None) -> int:
         else:
             problems.append(f"{m}: paper prints {got!r}, recomputed {expected!r} (tol {tol:.3g})")
 
-    lo, hi = xcheck
-    if abs(lo - float(printed["NumTaskOneTostCiLow"])) > 5e-4 or abs(
-        hi - float(printed["NumTaskOneTostCiHigh"])
-    ) > 5e-4:
-        problems.append(
-            "NumTaskOneTostCi*: the paired interval recomputed from t1_difficulty.csv "
-            f"is [{lo:.5f}, {hi:.5f}], the equivalence artefact says "
-            f"[{printed['NumTaskOneTostCiLow']}, {printed['NumTaskOneTostCiHigh']}]"
-        )
+    for tag, prefix in (
+        ("t1", "NumTaskOneTost"),
+        ("t1transfer", "NumTaskOneTransferTost"),
+        ("t2", "NumTaskTwoTost"),
+    ):
+        lo, hi, mean_diff = xcheck[tag]
+        p_lo, p_hi = float(printed[prefix + "CiLow"]), float(printed[prefix + "CiHigh"])
+        tol = max(5e-4, 2e-3 * max(abs(p_lo), abs(p_hi)))
+        if abs(lo - p_lo) > tol or abs(hi - p_hi) > tol:
+            problems.append(
+                f"{prefix}Ci*: the paired interval recomputed from the per-cell table "
+                f"is [{lo:.5f}, {hi:.5f}], the equivalence artefact says "
+                f"[{p_lo}, {p_hi}]"
+            )
+        key = prefix + "MeanDiff"
+        if key in printed and abs(mean_diff - float(printed[key])) > tol:
+            problems.append(
+                f"{key}: recomputed paired mean difference {mean_diff:.5f}, "
+                f"artefact says {printed[key]}"
+            )
 
     for rel in ("tables/grid.tex", "tables/certification.tex", "tables/sensitivity.tex",
                 "tables/battery.tex", "tables/downstream_t1.tex", "tables/downstream_t2.tex",

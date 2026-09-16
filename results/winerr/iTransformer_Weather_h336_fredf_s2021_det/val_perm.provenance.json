@@ -1,0 +1,8 @@
+{
+  "cell_id": "iTransformer_Weather_h336_fredf_s2021_det",
+  "n_windows": 4935,
+  "note": "dataset index of the window at each loader position",
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

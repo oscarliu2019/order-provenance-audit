@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ILI_h36_san_lite_s2021_det",
+  "n_windows": 158,
+  "order": "index",
+  "split": "test",
+  "val_order": "deterministic"
+}

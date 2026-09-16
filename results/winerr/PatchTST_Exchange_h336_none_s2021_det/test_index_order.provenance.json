@@ -1,0 +1,7 @@
+{
+  "cell_id": "PatchTST_Exchange_h336_none_s2021_det",
+  "n_windows": 1182,
+  "order": "index",
+  "split": "test",
+  "val_order": "deterministic"
+}

@@ -1,0 +1,7 @@
+{
+  "cell_id": "iTransformer_ETTh1_h96_none_s2021_det",
+  "n_windows": 2785,
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

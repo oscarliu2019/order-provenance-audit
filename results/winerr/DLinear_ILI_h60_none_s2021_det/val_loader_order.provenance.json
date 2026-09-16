@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ILI_h60_none_s2021_det",
+  "n_windows": 38,
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}

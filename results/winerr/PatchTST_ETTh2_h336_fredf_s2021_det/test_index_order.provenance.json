@@ -1,0 +1,7 @@
+{
+  "cell_id": "PatchTST_ETTh2_h336_fredf_s2021_det",
+  "n_windows": 2545,
+  "order": "index",
+  "split": "test",
+  "val_order": "deterministic"
+}

@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ETTh2_h336_revin_s2023_shuf",
+  "n_windows": 2545,
+  "order": "index",
+  "split": "test",
+  "val_order": "shuffled"
+}

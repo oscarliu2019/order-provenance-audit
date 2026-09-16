@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ETTm1_h96_none_s2022_det",
+  "n_windows": 11425,
+  "order": "index",
+  "split": "test",
+  "val_order": "deterministic"
+}

@@ -1,0 +1,7 @@
+{
+  "cell_id": "DLinear_ETTm2_h96_san_lite_s2023_det",
+  "n_windows": 11425,
+  "order": "index",
+  "split": "val",
+  "val_order": "deterministic"
+}

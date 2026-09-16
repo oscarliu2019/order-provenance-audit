@@ -1,0 +1,8 @@
+{
+  "cell_id": "DLinear_Exchange_h192_revin_s2021_det",
+  "n_windows": 569,
+  "note": "dataset index of the window at each loader position",
+  "order": "loader",
+  "split": "val",
+  "val_order": "deterministic"
+}
