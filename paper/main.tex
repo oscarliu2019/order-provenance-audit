@@ -1199,7 +1199,13 @@ $\NumTaxMedianAbs\%$, a ninetieth percentile of $\NumTaxPNinetyAbs\%$ and a
 maximum of $\NumTaxMaxAbs\%$; $\NumTaxOverTenthPct\%$ of pairs move by more than a tenth of a
 percent, only $\NumTaxIdenticalPct\%$ are numerically identical, the selected
 epoch agrees in $\NumTaxSameEpochPct\%$ of pairs, and a Wilcoxon signed-rank test
-finds no systematic direction ($p = \NumTaxWilcoxP{}$). Figure~\ref{fig:rngtax}
+finds no systematic direction ($p = \NumTaxWilcoxP{}$). The mechanism is visible in
+the split by early stopping: the $\NumTaxDiffEpochPairs{}$ pairs in which the
+selected epoch differs move by a median of $\NumTaxDiffEpochMedian\%$, an order of
+magnitude more than the $\NumTaxSameEpochMedian\%$ of the pairs that stop at the
+same epoch, and the largest movement in the study belongs to the former group. The
+repair does not perturb the reported number directly; it perturbs the trajectory,
+and early stopping converts that into a visible change. Figure~\ref{fig:rngtax}
 and Table~\ref{tab:tax} show the distribution.
 
 \begin{table}[t]

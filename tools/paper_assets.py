@@ -250,6 +250,13 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     n["NumTaxPNinetyAbs"] = round(float(tax["abs_rel_diff_pct"].quantile(0.9)), 3)
     n["NumTaxMaxAbs"] = round(float(tax["abs_rel_diff_pct"].max()), 3)
     n["NumTaxSameEpochPct"] = round(float(100 * tax["same_best_epoch"].mean()), 1)
+    n["NumTaxSameEpochMedian"] = round(
+        float(tax.loc[tax["same_best_epoch"] == 1, "abs_rel_diff_pct"].median()), 4
+    )
+    n["NumTaxDiffEpochMedian"] = round(
+        float(tax.loc[tax["same_best_epoch"] == 0, "abs_rel_diff_pct"].median()), 4
+    )
+    n["NumTaxDiffEpochPairs"] = int((tax["same_best_epoch"] == 0).sum())
     n["NumTaxOverTenthPct"] = round(float(100 * (tax["abs_rel_diff_pct"] > 0.1).mean()), 1)
     n["NumTaxWilcoxP"] = float(
         f"{stats.wilcoxon(tax['mse_shuffled'], tax['mse_deterministic']).pvalue:.3g}"
