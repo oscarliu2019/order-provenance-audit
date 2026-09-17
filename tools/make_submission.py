@@ -77,7 +77,7 @@ def main() -> int:
             z.write(src, f"latex/{arc}")
         z.write(PAPER / "main.pdf", "manuscript.pdf")
         for name in ("highlights.md", "highlights.docx", "cover_letter.md",
-                     "declarations.md", "declaration_of_interest.docx",
+                     "declarations.md", "declaration_of_interest_elsevier.docx",
                      "credit_author_statement.md", "data_availability.md"):
             p = OUT / name
             if p.exists():
