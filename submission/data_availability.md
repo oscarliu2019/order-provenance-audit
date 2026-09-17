@@ -28,3 +28,6 @@ A permanent, citable archive of this release will be deposited with a DOI
 `tools/verify_paper_numbers.py` re-derives every quantitative claim in the
 manuscript independently from those artefacts and exits non-zero on any mismatch,
 naming the claim identifier, the printed value and the recomputed value.
+
+The repository is also archived permanently in Software Heritage: the revision
+from which this manuscript was produced is `swh:1:rev:1094bb72d608638a694b763c36a8f7ee875a8111` (visit `swh:1:snp:ad97da379ee5cbf09a196bad6883fed9926cbaac`).

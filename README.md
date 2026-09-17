@@ -1,5 +1,7 @@
 # Silent order corruption in per-sample evaluation artefacts
 
+Archived in Software Heritage: `swh:1:rev:1094bb72d608638a694b763c36a8f7ee875a8111` (visit `swh:1:snp:ad97da379ee5cbf09a196bad6883fed9926cbaac`).
+
 Reproduction package for the manuscript
 
 > **Silent order corruption in per-sample evaluation artefacts: why the standard
