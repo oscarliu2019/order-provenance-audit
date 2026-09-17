@@ -57,19 +57,24 @@ def ww_moments(x: np.ndarray) -> tuple[float, float]:
     n = x.size
     c = x - x.mean()
     s2 = float((c**2).sum())
-    s3 = float((c**3).sum())
     s4 = float((c**4).sum())
     if n < 4 or s2 <= 0:
         return float("nan"), float("nan")
     mean = -1.0 / (n - 1)
     # Variance of R = sum_i c_i c_{i+1} (circular), then scaled by s2^2.
+    # tests/test_detect.py checks both moments against brute-force enumeration
+    # of all n! permutations for n <= 8.
     var_r = (
         (s2**2 - s4) / (n - 1)
-        + (s2**2 - 2.0 * s4 + 4.0 * s2 * 0.0 + 4.0 * s3 * 0.0) / ((n - 1) * (n - 2))
+        + (s2**2 - 2.0 * s4) / ((n - 1) * (n - 2))
         - (s2**2) / (n - 1) ** 2
     )
     var = var_r / (s2**2)
-    return float(mean), float(max(var, 1e-300))
+    if not np.isfinite(var) or var <= 0.0:
+        # A (near-)constant vector carries no order information; report the
+        # statistic as undefined rather than certifying it.
+        return float(mean), float("nan")
+    return float(mean), float(var)
 
 
 def aot(x: np.ndarray, n_perm: int = 0, rng: np.random.Generator | None = None) -> dict[str, float]:

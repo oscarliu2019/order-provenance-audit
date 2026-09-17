@@ -25,12 +25,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import GridConfig  # noqa: E402
 from src.detect import (  # noqa: E402
     aot,
+    ww_moments,
     aot_power_bound,
     apply_permutation,
     block_permutation,
@@ -42,8 +44,10 @@ from src.downstream import (  # noqa: E402
     arm_selection,
     difficulty_regression,
     equivalence_test,
+    equivalence_test_clustered,
     paired_summary,
 )
+from src.seeds import stable_rng  # noqa: E402
 from src.winerr import ORDER_INDEX, load_series  # noqa: E402
 
 ALPHA = 0.05
@@ -168,7 +172,7 @@ def cmd_aot(cfg: GridConfig, args) -> None:
     for _, r in sub.iterrows():
         d = win_dir(cfg, r["cell_id"])
         y = load_series(d, f"{r['split']}_index_order", require_order=ORDER_INDEX)
-        perm = np.random.default_rng(int(abs(hash(r["cell_id"])) % 2**32)).permutation(y.size)
+        perm = stable_rng("aot-calib", r["cell_id"]).permutation(y.size)
         shuffled = apply_permutation(y, perm)
         res = aot(shuffled, n_perm=args.n_perm, rng=np.random.default_rng(7))
         calib_rows.append(
@@ -197,7 +201,7 @@ def cmd_aot(cfg: GridConfig, args) -> None:
     for _, r in pool.iterrows():
         d = win_dir(cfg, r["cell_id"])
         y = load_series(d, "val_index_order", require_order=ORDER_INDEX)
-        g = np.random.default_rng(int(abs(hash(("sens", r["cell_id"]))) % 2**32))
+        g = stable_rng("sens", r["cell_id"])
         for b in args.blocks:
             if b >= y.size:
                 continue
@@ -241,6 +245,77 @@ def cmd_aot(cfg: GridConfig, args) -> None:
     print(f"[aot] theory table -> {_art(cfg) / 'aot_theory.csv'}")
 
 
+def cmd_aottail(cfg: GridConfig, args) -> None:
+    """Measure the deep tail of the normal approximation, instead of trusting it.
+
+    The randomisation moments in ww_moments are exact, but the normal reference
+    is asymptotic, so a p-value quoted at 1e-6 is an extrapolation of a two-moment
+    approximation. Here we take a stratified set of real sequences, draw
+    ``--tail-perm`` independent uniform permutations of each (which is exactly the
+    null of the test), and report how often the normal rule would reject at each
+    nominal level. With B draws the resolution is 1/B, so B = 10^6 checks the rule
+    down to about 1e-5 and bounds it at 1e-6.
+    """
+    seq = pd.read_csv(_art(cfg) / "aot_sequences.csv")
+    clean = seq[(seq["variant"] == "index_order")].drop_duplicates("cell_id")
+    # stratify by length: the approximation is worst for short sequences
+    qs = np.quantile(clean["n"], [0.0, 0.25, 0.5, 0.75, 1.0])
+    picks = []
+    for q in qs:
+        row = clean.iloc[(clean["n"] - q).abs().argsort().iloc[0]]
+        if row["cell_id"] not in [p_["cell_id"] for p_ in picks]:
+            picks.append(row)
+    B = int(args.tail_perm)
+    chunk = max(1, min(4096, 20_000_000 // max(int(max(p_["n"] for p_ in picks)), 1)))
+    alphas = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6]
+    rows = []
+    for row in picks:
+        d = win_dir(cfg, row["cell_id"])
+        y = load_series(d, f"{row['split']}_index_order", require_order=ORDER_INDEX)
+        n = int(y.size)
+        mean, var = ww_moments(y)
+        sd = float(np.sqrt(var))
+        thresholds = np.array([mean + stats.norm.isf(a) * sd for a in alphas])
+        counts = np.zeros(len(alphas), dtype=np.int64)
+        c = y - y.mean()
+        s2 = float((c * c).sum())
+        rng = stable_rng("aot-tail", row["cell_id"], B)
+        done = 0
+        zmax = -np.inf
+        while done < B:
+            m = min(chunk, B - done)
+            block = np.tile(c, (m, 1))
+            block = rng.permuted(block, axis=1)
+            num = (block * np.roll(block, -1, axis=1)).sum(axis=1)
+            r = num / s2
+            counts += (r[:, None] >= thresholds[None, :]).sum(axis=0)
+            zmax = max(zmax, float(((r - mean) / sd).max()))
+            done += m
+        for a, k in zip(alphas, counts):
+            rows.append(
+                {
+                    "cell_id": row["cell_id"],
+                    "split": row["split"],
+                    "n": n,
+                    "kurtosis": float(stats.kurtosis(y, fisher=False)),
+                    "n_perm": B,
+                    "alpha": a,
+                    "n_reject": int(k),
+                    "fpr_empirical": float(k) / B,
+                    "ratio_to_nominal": float(k) / B / a,
+                    "max_z_observed": zmax,
+                }
+            )
+        print(
+            f"[aottail] {row['cell_id']} n={n} maxz={zmax:.2f} "
+            + " ".join(f"a={a:.0e}:{k}" for a, k in zip(alphas, counts)),
+            flush=True,
+        )
+    df = pd.DataFrame(rows)
+    df.to_csv(_art(cfg) / "aot_tail.csv", index=False)
+    print(df.to_string(index=False))
+
+
 def _aot_row(res: dict) -> dict:
     return {
         "r": res["r"],
@@ -273,7 +348,7 @@ def cmd_cat(cfg: GridConfig, args) -> None:
         if len(mats) < 2:
             continue
         mat = np.stack([m[:n_min] for m in mats])
-        g_rng = np.random.default_rng(int(abs(hash((blk, seed, order))) % 2**32))
+        g_rng = stable_rng("cat", blk, seed, order)
         defect = np.stack([apply_permutation(m, g_rng.permutation(n_min)) for m in mat])
         base = {
             "block_id": blk,
@@ -337,11 +412,12 @@ def cmd_downstream(cfg: GridConfig, args) -> None:
             perm = load_series(d, "val_perm", require_order=None).astype(np.int64)
             perm_source = "observed"
         else:
-            perm = np.random.default_rng(
-                int(abs(hash(("t1", r["cell_id"]))) % 2**32)
-            ).permutation(yv.size)
+            perm = stable_rng("t1", r["cell_id"]).permutation(yv.size)
             perm_source = "simulated"
-        res = difficulty_regression(xv, yv, xt, yt, perm, FEATURE_COLUMNS, seed=int(r["seed"]))
+        res = difficulty_regression(
+            xv, yv, xt, yt, perm, FEATURE_COLUMNS, seed=int(r["seed"]),
+            control_perm=stable_rng("t1-control", r["cell_id"]).permutation(yv.size),
+        )
         for cond, m in res.items():
             t1_rows.append(
                 {
@@ -399,9 +475,12 @@ def cmd_downstream(cfg: GridConfig, args) -> None:
         ft = feature_matrix(cfg, ds, h, "test")
         xv = fv[FEATURE_COLUMNS].to_numpy()[:nv]
         xt = ft[FEATURE_COLUMNS].to_numpy()[:nt]
-        rg = np.random.default_rng(int(abs(hash(("t2", blk, seed, order))) % 2**32))
+        rg = stable_rng("t2", blk, seed, order)
         perms = np.stack([rg.permutation(nv) for _ in arms])
-        res = arm_selection(xv, val_errs, xt, test_errs, perms, arms, seed=int(seed))
+        res = arm_selection(
+            xv, val_errs, xt, test_errs, perms, arms, seed=int(seed),
+            control_perm=stable_rng("t2-control", blk, seed, order).permutation(nv),
+        )
         for cond, m in res.items():
             t2_rows.append(
                 {
@@ -449,13 +528,142 @@ def cmd_downstream(cfg: GridConfig, args) -> None:
         margin = args.margin_gain if tag == "t2_gain" else args.margin_rho
         eq = equivalence_test(wide["defect"].to_numpy(), wide["control"].to_numpy(), margin)
         eq_row = {"task": tag, **eq}
+        # conservative reading: cells that share a dataset share a sample set
+        ds = d.drop_duplicates("block_id").set_index("block_id")["dataset"]
+        eqc = equivalence_test_clustered(
+            wide["defect"].to_numpy(),
+            wide["control"].to_numpy(),
+            ds.reindex(wide.index).to_numpy(),
+            margin,
+        )
+        for k, v in eqc.items():
+            eq_row[f"clustered_{k}"] = v
         pd.DataFrame([eq_row]).to_csv(
             _art(cfg) / f"equivalence_{tag}.csv", index=False
         )
         print(f"[equiv] {tag}: defect vs control {eq}")
+        print(f"[equiv] {tag}: dataset-clustered {eqc}")
     pd.concat(summ.values(), ignore_index=True).to_csv(
         _art(cfg) / "downstream_paired.csv", index=False
     )
+
+
+# --------------------------------------------------------------------------- #
+# replicated-draw equivalence: the single-draw TOST is a Monte Carlo experiment
+# --------------------------------------------------------------------------- #
+def _eq_draw_cell(job: tuple) -> list[dict]:
+    """One cell of the replicated equivalence experiment.
+
+    The defect is a random permutation and so is the control shuffle, so a TOST
+    computed from one draw of each is itself a Monte Carlo experiment: its p-value
+    has a sampling distribution. This recomputes the two T1 statistics over
+    ``draws`` independent draws of both conditions, which lets us report the
+    spread of the single-draw test and a draw-averaged estimate whose Monte Carlo
+    component is ``draws`` times smaller.
+    """
+    from src.downstream import _fit_regressor, association
+
+    cell_id, xv, yv, xt, yt, seed, draws, fstd_col = job
+    y_val_log = np.log(np.maximum(yv, 1e-12))
+    y_test_log = np.log(np.maximum(yt, 1e-12))
+    out = []
+    for d in range(draws):
+        dperm = stable_rng("eq-defect", cell_id, d).permutation(y_val_log.size)
+        cperm = stable_rng("eq-control", cell_id, d).permutation(y_val_log.size)
+        for cond, (x_, y_) in (
+            ("defect", (xv, y_val_log[dperm])),
+            ("control", (xv[cperm], y_val_log)),
+        ):
+            rho = association(x_, y_, fstd_col, y_raw=np.exp(y_))["assoc_rho_fstd"]
+            m = _fit_regressor(seed)
+            m.fit(x_, y_)
+            tr = float(stats.spearmanr(m.predict(xt), y_test_log).statistic)
+            out.append(
+                {
+                    "cell_id": cell_id,
+                    "draw": d,
+                    "condition": cond,
+                    "assoc_rho_fstd": rho,
+                    "spearman_test": tr,
+                }
+            )
+    return out
+
+
+def cmd_eqdraws(cfg: GridConfig, args) -> None:
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
+    runs = load_runs(cfg)
+    jobs = []
+    for _, r in runs.iterrows():
+        d = win_dir(cfg, r["cell_id"])
+        try:
+            yv = load_series(d, "val_index_order")
+            yt = load_series(d, "test_index_order")
+        except FileNotFoundError:
+            continue
+        fv = feature_matrix(cfg, r["dataset"], int(r["pred_len"]), "val")
+        ft = feature_matrix(cfg, r["dataset"], int(r["pred_len"]), "test")
+        jobs.append(
+            (
+                r["cell_id"],
+                fv[FEATURE_COLUMNS].to_numpy(),
+                yv,
+                ft[FEATURE_COLUMNS].to_numpy(),
+                yt,
+                int(r["seed"]),
+                int(args.eq_draws),
+                FEATURE_COLUMNS,
+            )
+        )
+    os.environ.setdefault("OMP_NUM_THREADS", "2")
+    rows: list[dict] = []
+    with ProcessPoolExecutor(max_workers=int(args.eq_jobs)) as ex:
+        for i, res in enumerate(ex.map(_eq_draw_cell, jobs), 1):
+            rows.extend(res)
+            if i % 25 == 0 or i == len(jobs):
+                print(f"[eqdraws] {i}/{len(jobs)} cells", flush=True)
+    df = pd.DataFrame(rows)
+    df.to_csv(_art(cfg) / "equivalence_draws_raw.csv", index=False)
+
+    summary = []
+    for stat, margin in (
+        ("assoc_rho_fstd", args.margin_rho),
+        ("spearman_test", args.margin_rho),
+    ):
+        per_draw = []
+        for d, g in df.groupby("draw"):
+            w = g.pivot_table(index="cell_id", columns="condition", values=stat).dropna()
+            eq = equivalence_test(w["defect"].to_numpy(), w["control"].to_numpy(), margin)
+            per_draw.append({"stat": stat, "draw": int(d), **eq})
+        pd_df = pd.DataFrame(per_draw)
+        mean_cell = (
+            df.groupby(["cell_id", "condition"])[stat].mean().unstack("condition").dropna()
+        )
+        eq_mean = equivalence_test(
+            mean_cell["defect"].to_numpy(), mean_cell["control"].to_numpy(), margin
+        )
+        summary.append(
+            {
+                "stat": stat,
+                "draws": int(args.eq_draws),
+                "margin": float(margin),
+                "single_p_min": float(pd_df["p_tost"].min()),
+                "single_p_max": float(pd_df["p_tost"].max()),
+                "single_p_median": float(pd_df["p_tost"].median()),
+                "single_certify_frac": float(pd_df["equivalent_at_05"].mean()),
+                "single_absdiff_max": float(pd_df["mean_diff"].abs().max()),
+                "mean_n": eq_mean["n"],
+                "mean_diff": eq_mean["mean_diff"],
+                "mean_ci95_low": eq_mean["ci95_low"],
+                "mean_ci95_high": eq_mean["ci95_high"],
+                "mean_p_tost": eq_mean["p_tost"],
+                "mean_equivalent_at_05": eq_mean["equivalent_at_05"],
+            }
+        )
+        print(f"[eqdraws] {stat}: {summary[-1]}", flush=True)
+    pd.DataFrame(summary).to_csv(_art(cfg) / "equivalence_draws.csv", index=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -486,7 +694,7 @@ def cmd_labellaw(cfg: GridConfig, args) -> None:
         n = min(v.size for v in vs)
         val = np.stack([v[:n] for v in vs])
         best_fixed = int(np.argmin(val.mean(axis=1)))
-        rg = np.random.default_rng(int(abs(hash(("t2", blk, seed, order))) % 2**32))
+        rg = stable_rng("t2", blk, seed, order)
         perms = np.stack([rg.permutation(n) for _ in arms])
         defect = np.stack([val[a][perms[a]] for a in range(len(arms))])
 
@@ -602,7 +810,7 @@ def cmd_battery(cfg: GridConfig, args) -> None:
             sub = mat[:, ::s]
             if sub.shape[1] < 40:
                 continue
-            rg = np.random.default_rng(int(abs(hash((blk, seed, order, s))) % 2**32))
+            rg = stable_rng("battery", blk, seed, order, s)
             defect = np.stack([apply_permutation(row, rg.permutation(sub.shape[1])) for row in sub])
             for variant, m in (("index_order", sub), ("full_permutation", defect)):
                 a_p = [aot(row)["p"] for row in m]
@@ -683,10 +891,12 @@ def cmd_all(cfg: GridConfig, args) -> None:
     cmd_runs(cfg, args)
     cmd_features(cfg, args)
     cmd_aot(cfg, args)
+    cmd_aottail(cfg, args)
     cmd_certify(cfg, args)
     cmd_cat(cfg, args)
     cmd_battery(cfg, args)
     cmd_downstream(cfg, args)
+    cmd_eqdraws(cfg, args)
     cmd_labellaw(cfg, args)
     cmd_rngtax(cfg, args)
 
@@ -695,25 +905,30 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "cmd",
-        choices=["runs", "features", "aot", "certify", "cat", "battery", "downstream",
-                 "labellaw", "rngtax", "all"],
+        choices=["runs", "features", "aot", "aottail", "certify", "cat", "battery",
+                 "downstream", "eqdraws", "labellaw", "rngtax", "all"],
     )
     ap.add_argument("--config", default=None)
     ap.add_argument("--n-perm", type=int, default=2000)
     ap.add_argument("--calib", type=int, default=120)
+    ap.add_argument("--tail-perm", type=int, default=1_000_000)
     ap.add_argument("--sens", type=int, default=60)
     ap.add_argument("--blocks", type=int, nargs="*", default=[8, 32, 128, 512])
     ap.add_argument("--fracs", type=float, nargs="*", default=[0.05, 0.1, 0.25, 0.5, 1.0])
     ap.add_argument("--strides", type=int, nargs="*", default=[1, 4, 16, 64, 192, 512])
     ap.add_argument("--alphas", type=float, nargs="*",
                     default=[0.05, 0.01, 1e-3, 1e-6, 1e-12])
+    ap.add_argument("--eq-draws", type=int, default=8)
+    ap.add_argument("--eq-jobs", type=int, default=12)
     ap.add_argument("--margin-rho", type=float, default=0.03)
     ap.add_argument("--margin-gain", type=float, default=0.25)
     a = ap.parse_args(argv)
     cfg = GridConfig(a.config)
     {
-        "runs": cmd_runs, "features": cmd_features, "aot": cmd_aot, "certify": cmd_certify,
+        "runs": cmd_runs, "features": cmd_features, "aot": cmd_aot,
+        "aottail": cmd_aottail, "certify": cmd_certify,
         "cat": cmd_cat, "battery": cmd_battery, "downstream": cmd_downstream,
+        "eqdraws": cmd_eqdraws,
         "labellaw": cmd_labellaw, "rngtax": cmd_rngtax, "all": cmd_all,
     }[a.cmd](cfg, a)
     return 0

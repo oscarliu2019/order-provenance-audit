@@ -1,2 +1,2 @@
-task,n,mean_diff,sd_diff,margin,p_tost,equivalent_at_05,ci95_low,ci95_high
-t2_gain,96.0,-0.7872575632766606,2.606749152774346,0.25,0.9768676399616143,0.0,-1.3154340321391451,-0.25908109441417615
+task,n,mean_diff,sd_diff,margin,p_tost,equivalent_at_05,ci95_low,ci95_high,clustered_n,clustered_mean_diff,clustered_sd_diff,clustered_margin,clustered_p_tost,clustered_equivalent_at_05,clustered_ci95_low,clustered_ci95_high,clustered_n_clusters,clustered_n_cells
+t2_gain,96.0,-0.5872586654287383,2.079612329608604,0.25,0.9423053429183137,0.0,-1.0086272868346513,-0.16589004402282537,7.0,-0.6218222995529816,0.7107286532934697,0.25,0.8922004366496541,0.0,-1.2791366727592568,0.03549207365329354,7.0,96.0

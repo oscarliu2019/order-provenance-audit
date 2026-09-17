@@ -152,3 +152,35 @@ def test_mean_pairwise_spearman_edge_cases():
 def test_aot_returns_nan_on_degenerate_input():
     assert np.isnan(aot(np.zeros(3))["r"])
     assert np.isnan(aot(np.ones(100))["r"])
+
+
+def test_ww_moments_match_brute_force_enumeration():
+    """The randomisation moments are claimed to be exact, not asymptotic.
+
+    Enumerate every permutation for small n and compare. This pins the variance
+    formula: an error here would invalidate every z-score in the paper.
+    """
+    import itertools
+
+    rng = np.random.default_rng(0)
+    for n in (5, 6, 7, 8):
+        x = rng.normal(size=n)
+        vals = np.array([circular_serial_corr(np.array(p)) for p in itertools.permutations(x)])
+        mean, var = ww_moments(x)
+        assert mean == pytest.approx(vals.mean(), abs=1e-12)
+        assert var == pytest.approx(vals.var(), rel=1e-10)
+
+
+def test_ww_moments_undefined_for_constant_vector():
+    """A constant vector must not be certifiable: variance is undefined, not tiny."""
+    mean, var = ww_moments(np.full(64, 3.0))
+    assert np.isnan(var)
+    out = aot(np.full(64, 3.0))
+    assert np.isnan(out["p"])
+
+
+def test_ww_moments_undefined_for_near_constant_vector():
+    x = np.full(64, 1.0)
+    x[0] = 1.0 + 1e-13
+    out = aot(x)
+    assert not (out["p"] < 1e-3), "a near-constant vector must not be certified as ordered"

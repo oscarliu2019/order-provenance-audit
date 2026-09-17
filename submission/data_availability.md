@@ -12,12 +12,18 @@ is publicly released at
 and comprises: the experiment configuration; the per-run table; the per-sample
 audit outputs (AOT sequence statistics, calibration, sensitivity, the
 certification sweep, cross-arm agreement, the battery); the per-sample feature
-tables; the T1 and T2 downstream outputs together with the equivalence tests and
+tables; the empirical tail calibration of the order test; the T1 and T2 downstream outputs
+together with the equivalence tests in three readings (paired over cells, clustered
+by dataset, and replicated over eight independent draws of the defect and of the
+control) and
 the derived-label distribution table behind Proposition 7; the
 paired repair-cost table; the reference implementation of the order-provenance
 contract and of both tests; a test suite that states the propositions as
 executable assertions; and the generators for `paper/numbers.tex`, every table and
 every figure.
+
+A permanent, citable archive of this release will be deposited with a DOI
+(Zenodo) at the time of submission and the DOI added here.
 
 `tools/verify_paper_numbers.py` re-derives every quantitative claim in the
 manuscript independently from those artefacts and exits non-zero on any mismatch,

@@ -119,8 +119,14 @@ def difficulty_regression(
     columns: list[str],
     seed: int = 0,
     purge: int = 200,
+    control_perm: np.ndarray | None = None,
 ) -> dict[str, dict[str, float]]:
     """T1 under all three conditions. ``perm`` is the loader visiting order.
+
+    ``control_perm`` is the feature-row shuffle of the negative control. Pass an
+    independent draw per cell: deriving it from ``seed`` alone would reuse the
+    same shuffle across every cell of equal length, which correlates the control
+    arm across cells and understates its spread.
 
     Two flavours of the same question are reported. The *descriptive* flavour
     (``association``) is what a paper prints in a table; the *predictive*
@@ -133,13 +139,15 @@ def difficulty_regression(
     The target is ``log`` error: per-window MSE is heavy tailed and the join
     question concerns ordering information, which a log transform preserves.
     """
-    rng = np.random.default_rng(seed)
+    if control_perm is None:
+        control_perm = np.random.default_rng(seed).permutation(len(x_val))
+    control_perm = np.asarray(control_perm, dtype=np.int64)
     y_val_log = np.log(np.maximum(y_val, 1e-12))
     y_test_log = np.log(np.maximum(y_test, 1e-12))
     variants = {
         "index": (x_val, y_val_log),
         "defect": (x_val, y_val_log[perm]),
-        "control": (x_val[rng.permutation(len(x_val))], y_val_log),
+        "control": (x_val[control_perm], y_val_log),
     }
     out: dict[str, dict[str, float]] = {}
     for name, (xv, yv) in variants.items():
@@ -170,6 +178,7 @@ def arm_selection(
     perms: np.ndarray,
     arms: list[str],
     seed: int = 0,
+    control_perm: np.ndarray | None = None,
 ) -> dict[str, dict[str, float]]:
     """T2 under all three conditions.
 
@@ -178,7 +187,9 @@ def arm_selection(
     what a defective pipeline produces -- the permutations are independent
     because each arm is a separate process with its own loader.
     """
-    rng = np.random.default_rng(seed)
+    if control_perm is None:
+        control_perm = np.random.default_rng(seed).permutation(len(x_val))
+    control_perm = np.asarray(control_perm, dtype=np.int64)
     k = val_errs.shape[0]
     fixed_val = val_errs.mean(axis=1)
     best_fixed = int(np.argmin(fixed_val))
@@ -190,7 +201,7 @@ def arm_selection(
     variants: dict[str, tuple[np.ndarray, np.ndarray]] = {
         "index": (x_val, val_errs),
         "defect": (x_val, np.stack([val_errs[a][perms[a]] for a in range(k)])),
-        "control": (x_val[rng.permutation(len(x_val))], val_errs),
+        "control": (x_val[control_perm], val_errs),
     }
     out: dict[str, dict[str, float]] = {}
     for name, (xv, ve) in variants.items():
@@ -270,11 +281,37 @@ def equivalence_test(a: np.ndarray, b: np.ndarray, margin: float) -> dict[str, f
     }
 
 
+def equivalence_test_clustered(
+    a: np.ndarray,
+    b: np.ndarray,
+    clusters: np.ndarray,
+    margin: float,
+) -> dict[str, float]:
+    """Cluster-level TOST: collapse each cluster to its mean paired difference first.
+
+    Cells that share a dataset also share an evaluation sample set, so treating
+    them as independent replicates understates the standard error. Averaging
+    within cluster and testing across cluster means is the conservative reading:
+    the effective sample size is the number of clusters, not the number of cells.
+    """
+    d = np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
+    clusters = np.asarray(clusters)
+    keep = np.isfinite(d)
+    d, clusters = d[keep], clusters[keep]
+    labels = np.unique(clusters)
+    means = np.array([d[clusters == c].mean() for c in labels])
+    out = equivalence_test(means, np.zeros_like(means), margin)
+    out["n_clusters"] = float(len(labels))
+    out["n_cells"] = float(d.size)
+    return out
+
+
 __all__ = [
     "CONDITIONS",
     "FEATURE_COLUMNS",
     "arm_selection",
     "difficulty_regression",
     "equivalence_test",
+    "equivalence_test_clustered",
     "paired_summary",
 ]

@@ -67,6 +67,7 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     eq_rho = _read(cfg, "equivalence_t1_rho.csv").iloc[0]
     eq_tr = _read(cfg, "equivalence_t1_transfer.csv").iloc[0]
     eq_gain = _read(cfg, "equivalence_t2_gain.csv").iloc[0]
+    eqd = _read(cfg, "equivalence_draws.csv").set_index("stat")
 
     n: dict[str, object] = {}
 
@@ -86,6 +87,9 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     obs = seq[seq["variant"] == "observed_loader_order"]
     n["NumSequences"] = int(len(clean))
     n["NumWindowsAudited"] = int(clean["n"].sum())
+    _sets = clean.drop_duplicates(subset=["dataset", "pred_len", "split"])
+    n["NumSampleSets"] = int(len(_sets))
+    n["NumDistinctWindows"] = int(_sets["n"].sum())
     n["NumWindowsMin"] = int(clean["n"].min())
     n["NumWindowsMax"] = int(clean["n"].max())
 
@@ -100,6 +104,10 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     n["NumRMaxCorrupt"] = round(float(dirty["r"].max()), 4)
     n["NumZMedianClean"] = round(float(clean["z"].median()), 1)
     n["NumZMinClean"] = round(float(clean["z"].min()), 1)
+    n["NumZMinCleanN"] = int(clean.loc[clean["z"].idxmin(), "n"])
+    long_clean = clean[clean["n"] >= 500]
+    if len(long_clean):
+        n["NumZMinCleanLong"] = round(float(long_clean["z"].min()), 1)
     n["NumZMaxCorrupt"] = round(float(dirty["z"].max()), 2)
     n["NumCleanCertPct"] = round(float(100 * (clean["p"] < ALPHA).mean()), 1)
     n["NumCorruptCertPct"] = round(float(100 * (dirty["p"] < ALPHA).mean()), 2)
@@ -137,6 +145,22 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
         full = par[np.isclose(par["param"], 1.0)]
         if len(full):
             n["NumSensPartialFullRate"] = round(float(100 * full["reject"].mean()), 1)
+    # ---- measured tail behaviour of the normal reference ---- #
+    tail = _read(cfg, "aot_tail.csv")
+    if len(tail):
+        n["NumTailSeq"] = int(tail["cell_id"].nunique())
+        n["NumTailPerm"] = int(tail["n_perm"].iloc[0])
+        n["NumTailNullDraws"] = int(tail["n_perm"].iloc[0] * tail["cell_id"].nunique())
+        n["NumTailKurtMax"] = round(float(tail["kurtosis"].max()), 1)
+        n["NumTailMaxZ"] = round(float(tail["max_z_observed"].max()), 2)
+        for a, tag in ((1e-2, "Two"), (1e-3, "Three"), (1e-4, "Four"), (1e-5, "Five")):
+            g = tail[np.isclose(tail["alpha"], a)]
+            if len(g):
+                n[f"NumTailRatio{tag}"] = round(float(g["ratio_to_nominal"].max()), 2)
+        short = tail[tail["n"] == tail["n"].min()]
+        n["NumTailShortN"] = int(short["n"].iloc[0])
+        n["NumTailShortMaxZ"] = round(float(short["max_z_observed"].max()), 2)
+
     for nn, tag in ((100, "Hundred"), (1000, "Thousand")):
         row = theory[theory["n"] == nn]
         if len(row):
@@ -197,12 +221,30 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     n["NumTaskOneTostCiLow"] = round(float(eq_rho["ci95_low"]), 5)
     n["NumTaskOneTostCiHigh"] = round(float(eq_rho["ci95_high"]), 5)
     n["NumTaskOneTostP"] = float(f"{eq_rho['p_tost']:.3g}")
+    for tag, key in (("Rho", "assoc_rho_fstd"), ("Transfer", "spearman_test")):
+        row = eqd.loc[key]
+        n[f"NumEqDraw{tag}SinglePMax"] = float(f"{row['single_p_max']:.3g}")
+        n[f"NumEqDraw{tag}SinglePMedian"] = float(f"{row['single_p_median']:.3g}")
+        n[f"NumEqDraw{tag}CertPct"] = round(100.0 * float(row["single_certify_frac"]), 1)
+        n[f"NumEqDraw{tag}AbsDiffMax"] = round(float(row["single_absdiff_max"]), 4)
+        n[f"NumEqDraw{tag}MeanDiff"] = round(float(row["mean_diff"]), 4)
+        n[f"NumEqDraw{tag}CiLow"] = round(float(row["mean_ci95_low"]), 4)
+        n[f"NumEqDraw{tag}CiHigh"] = round(float(row["mean_ci95_high"]), 4)
+        n[f"NumEqDraw{tag}P"] = float(f"{row['mean_p_tost']:.3g}")
+    n["NumEqDraws"] = int(eqd["draws"].iloc[0])
+    n["NumTaskOneTostClusters"] = int(eq_rho["clustered_n_clusters"])
+    n["NumTaskOneTostClusterCiLow"] = round(float(eq_rho["clustered_ci95_low"]), 5)
+    n["NumTaskOneTostClusterCiHigh"] = round(float(eq_rho["clustered_ci95_high"]), 5)
+    n["NumTaskOneTostClusterP"] = float(f"{eq_rho['clustered_p_tost']:.3g}")
     n["NumTaskOneTransferTostMargin"] = float(eq_tr["margin"])
     n["NumTaskOneTransferTostCiLow"] = round(float(eq_tr["ci95_low"]), 4)
     n["NumTaskOneTransferTostCiHigh"] = round(float(eq_tr["ci95_high"]), 4)
     n["NumTaskOneTransferTostN"] = int(eq_tr["n"])
     n["NumTaskOneTransferTostMeanDiff"] = round(float(eq_tr["mean_diff"]), 5)
     n["NumTaskOneTransferTostP"] = float(f"{eq_tr['p_tost']:.3g}")
+    n["NumTaskOneTransferTostClusterCiLow"] = round(float(eq_tr["clustered_ci95_low"]), 4)
+    n["NumTaskOneTransferTostClusterCiHigh"] = round(float(eq_tr["clustered_ci95_high"]), 4)
+    n["NumTaskOneTransferTostClusterP"] = float(f"{eq_tr['clustered_p_tost']:.3g}")
 
     # ---- T2 ---- #
     n["NumTaskTwoBlocks"] = int(len(t2[t2["condition"] == "index"]))
@@ -223,6 +265,9 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
     n["NumTaskTwoTostCiHigh"] = round(float(eq_gain["ci95_high"]), 3)
     n["NumTaskTwoTostMargin"] = float(eq_gain["margin"])
     n["NumTaskTwoTostMeanDiff"] = round(float(eq_gain["mean_diff"]), 3)
+    n["NumTaskTwoTostClusterCiLow"] = round(float(eq_gain["clustered_ci95_low"]), 3)
+    n["NumTaskTwoTostClusterCiHigh"] = round(float(eq_gain["clustered_ci95_high"]), 3)
+    n["NumTaskTwoTostClusterP"] = float(f"{eq_gain['clustered_p_tost']:.3g}")
     n["NumTaskTwoRandomPenaltyMedian"] = round(
         float(
             (
@@ -348,6 +393,26 @@ def cmd_tables(cfg: GridConfig, args) -> None:
             "lrr",
         )
     )
+
+    # tail calibration of the normal reference
+    tail = _read(cfg, "aot_tail.csv")
+    if len(tail):
+        rows = []
+        for (cell, nn), g in tail.groupby(["cell_id", "n"], sort=False):
+            g = g.sort_values("alpha", ascending=False)
+            cells = [f"{nn}", f"{g['kurtosis'].iloc[0]:.1f}"]
+            for _, r in g.iterrows():
+                cells.append(f"{r['ratio_to_nominal']:.2f}")
+            cells.append(f"{g['max_z_observed'].iloc[0]:.2f}")
+            rows.append(cells)
+        rows.sort(key=lambda r: int(r[0]))
+        alph = sorted(tail["alpha"].unique(), reverse=True)
+        header = ["$n$", "kurtosis"] + [
+            f"$10^{{{int(round(np.log10(a)))}}}$" for a in alph
+        ] + [r"$\max z$"]
+        (out / "tail.tex").write_text(
+            _tabular(header, rows, "rr" + "r" * len(alph) + "r")
+        )
 
     # T2: sensitivity to milder corruptions
     sens = _read(cfg, "aot_sensitivity.csv")

@@ -76,7 +76,8 @@ def main() -> int:
         for src, arc in _latex_members():
             z.write(src, f"latex/{arc}")
         z.write(PAPER / "main.pdf", "manuscript.pdf")
-        for name in ("highlights.md", "cover_letter.md", "declarations.md",
+        for name in ("highlights.md", "highlights.docx", "cover_letter.md",
+                     "declarations.md", "declaration_of_interest.docx",
                      "credit_author_statement.md", "data_availability.md"):
             p = OUT / name
             if p.exists():

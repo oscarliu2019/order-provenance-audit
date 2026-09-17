@@ -44,10 +44,13 @@ overlapping windows induce, with exact randomisation moments and hence an O(n)
 p-value, and one exploiting cross-arm agreement, which needs no serial structure —
 together with a minimal write-side provenance contract that makes the positional
 join fail closed. On 356 single-GPU training runs (21.3 GPU hours) across seven
-public benchmarks, three backbones and four arms — 712 audited error vectors
-covering 4.27 M evaluation windows — the battery separates intact from permuted
-artefacts by orders of magnitude, achieves perfect separation at a level of 1e-6,
-and detects corruptions far milder than a full permutation. We also quantify a maintenance
+public benchmarks, three backbones and four arms — 712 audited error vectors, 4.27 M
+summed window-level evaluations over 56 distinct sample sets — the battery separates
+intact from permuted artefacts by a large measured margin (smallest intact z 5.7
+against largest permuted z 3.35) and detects corruptions far milder than a full
+permutation. We also calibrate the normal tail of the test against 2.5 M Monte Carlo
+draws and report where it is anti-conservative, rather than quoting a nominal
+false-alarm rate we have not measured. We also quantify a maintenance
 trap: the obvious one-line repair changes the random stream and therefore the
 reported test error, so a maintainer must re-run rather than patch.
 

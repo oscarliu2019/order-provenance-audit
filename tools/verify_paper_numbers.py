@@ -82,6 +82,7 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
     cal = R("aot_calibration.csv")
     sens = R("aot_sensitivity.csv")
     theory = R("aot_theory.csv")
+    tail = R("aot_tail.csv")
     cert = R("certification.csv")
     catb = R("cat_blocks.csv")
     bat = R("battery.csv")
@@ -92,6 +93,7 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
     eqr = R("equivalence_t1_rho.csv").iloc[0]
     eqt = R("equivalence_t1_transfer.csv").iloc[0]
     eqg = R("equivalence_t2_gain.csv").iloc[0]
+    eqd_ = R("equivalence_draws.csv").set_index("stat")
 
     clean = seq.loc[seq.variant == "index_order"]
     dirty = seq.loc[seq.variant == "full_permutation"]
@@ -147,6 +149,10 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumTrainedEpochs": int(runs.epochs_run.astype(int).sum()),
         "NumSequences": int(len(clean)),
         "NumWindowsAudited": int(clean.n.astype(int).sum()),
+        "NumSampleSets": int(len(clean.drop_duplicates(subset=["dataset", "pred_len", "split"]))),
+        "NumDistinctWindows": int(
+            clean.drop_duplicates(subset=["dataset", "pred_len", "split"]).n.astype(int).sum()
+        ),
         "NumWindowsMin": int(clean.n.min()),
         "NumWindowsMax": int(clean.n.max()),
         # ---- masking ---- #
@@ -161,6 +167,20 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumRMaxCorrupt": float(dirty.r.max()),
         "NumZMedianClean": med(clean.z),
         "NumZMinClean": float(clean.z.min()),
+        "NumZMinCleanN": int(clean.loc[clean.z.idxmin(), "n"]),
+        "NumZMinCleanLong": float(clean.loc[clean.n >= 500, "z"].min()),
+        # ---- tail calibration ---- #
+        "NumTailSeq": int(tail.cell_id.nunique()),
+        "NumTailPerm": int(tail.n_perm.iloc[0]),
+        "NumTailNullDraws": int(tail.n_perm.iloc[0] * tail.cell_id.nunique()),
+        "NumTailKurtMax": float(tail["kurtosis"].max()),
+        "NumTailMaxZ": float(tail.max_z_observed.max()),
+        "NumTailRatioTwo": float(tail.loc[np.isclose(tail.alpha, 1e-2), "ratio_to_nominal"].max()),
+        "NumTailRatioThree": float(tail.loc[np.isclose(tail.alpha, 1e-3), "ratio_to_nominal"].max()),
+        "NumTailRatioFour": float(tail.loc[np.isclose(tail.alpha, 1e-4), "ratio_to_nominal"].max()),
+        "NumTailRatioFive": float(tail.loc[np.isclose(tail.alpha, 1e-5), "ratio_to_nominal"].max()),
+        "NumTailShortN": int(tail.n.min()),
+        "NumTailShortMaxZ": float(tail.loc[tail.n == tail.n.min(), "max_z_observed"].max()),
         "NumZMaxCorrupt": float(dirty.z.max()),
         "NumCleanCertPct": pct(clean.p < A),
         "NumCorruptCertPct": pct(dirty.p < A),
@@ -185,6 +205,33 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         "NumSensPartialMin": 100.0 * par_min,
         "NumSensPartialMinRate": pct(par.loc[par.param == par_min, "reject"]),
         "NumSensPartialFullRate": pct(par.loc[np.isclose(par.param, 1.0), "reject"]),
+        "NumEqDraws": int(eqd_["draws"].iloc[0]),
+        "NumEqDrawRhoSinglePMax": float(eqd_.loc["assoc_rho_fstd", "single_p_max"]),
+        "NumEqDrawRhoSinglePMedian": float(eqd_.loc["assoc_rho_fstd", "single_p_median"]),
+        "NumEqDrawRhoCertPct": 100.0 * float(eqd_.loc["assoc_rho_fstd", "single_certify_frac"]),
+        "NumEqDrawRhoAbsDiffMax": float(eqd_.loc["assoc_rho_fstd", "single_absdiff_max"]),
+        "NumEqDrawRhoMeanDiff": float(eqd_.loc["assoc_rho_fstd", "mean_diff"]),
+        "NumEqDrawRhoCiLow": float(eqd_.loc["assoc_rho_fstd", "mean_ci95_low"]),
+        "NumEqDrawRhoCiHigh": float(eqd_.loc["assoc_rho_fstd", "mean_ci95_high"]),
+        "NumEqDrawRhoP": float(eqd_.loc["assoc_rho_fstd", "mean_p_tost"]),
+        "NumEqDrawTransferSinglePMax": float(eqd_.loc["spearman_test", "single_p_max"]),
+        "NumEqDrawTransferSinglePMedian": float(eqd_.loc["spearman_test", "single_p_median"]),
+        "NumEqDrawTransferCertPct": 100.0 * float(eqd_.loc["spearman_test", "single_certify_frac"]),
+        "NumEqDrawTransferAbsDiffMax": float(eqd_.loc["spearman_test", "single_absdiff_max"]),
+        "NumEqDrawTransferMeanDiff": float(eqd_.loc["spearman_test", "mean_diff"]),
+        "NumEqDrawTransferCiLow": float(eqd_.loc["spearman_test", "mean_ci95_low"]),
+        "NumEqDrawTransferCiHigh": float(eqd_.loc["spearman_test", "mean_ci95_high"]),
+        "NumEqDrawTransferP": float(eqd_.loc["spearman_test", "mean_p_tost"]),
+        "NumTaskOneTostClusters": int(eqr["clustered_n_clusters"]),
+        "NumTaskOneTostClusterCiLow": float(eqr["clustered_ci95_low"]),
+        "NumTaskOneTostClusterCiHigh": float(eqr["clustered_ci95_high"]),
+        "NumTaskOneTostClusterP": float(eqr["clustered_p_tost"]),
+        "NumTaskOneTransferTostClusterCiLow": float(eqt["clustered_ci95_low"]),
+        "NumTaskOneTransferTostClusterCiHigh": float(eqt["clustered_ci95_high"]),
+        "NumTaskOneTransferTostClusterP": float(eqt["clustered_p_tost"]),
+        "NumTaskTwoTostClusterCiLow": float(eqg["clustered_ci95_low"]),
+        "NumTaskTwoTostClusterCiHigh": float(eqg["clustered_ci95_high"]),
+        "NumTaskTwoTostClusterP": float(eqg["clustered_p_tost"]),
         "NumRhoMinNHundred": float(theory.loc[theory.n == 100, "rho_min_detectable"].iloc[0]),
         "NumRhoMinNThousand": float(theory.loc[theory.n == 1000, "rho_min_detectable"].iloc[0]),
         # ---- CAT ---- #
