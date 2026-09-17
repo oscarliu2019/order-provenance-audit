@@ -790,11 +790,18 @@ Given a set of stored per-sample vectors we run AOT on each vector and CAT on ea
 group of arms that share a sample set, and we report a per-artefact verdict at a
 stated $\alpha$. We recommend $\alpha = 0.05$ for a warning and a far smaller
 level for a hard build failure: because the intact signal is enormous
-(Section~\ref{sec:res-detect} reports a median $z$ of $\NumZMedianClean{}$), an
-extremely conservative threshold still certifies every intact sequence while
-making a false alarm on a genuinely intact artefact effectively impossible. At
-$\alpha = 10^{-12}$ we certify $\NumCleanCertAlphaTwelve\%$ of intact sequences
-and $\NumCorruptCertAlphaTwelve\%$ of permuted ones.
+(Section~\ref{sec:res-detect} reports a median $z$ of $\NumZMedianClean{}$), a very
+conservative threshold costs almost nothing in missed certifications---at
+$\alpha = 10^{-12}$ we still certify $\NumCleanCertAlphaTwelve\%$ of intact
+sequences, and $\NumCorruptCertAlphaTwelve\%$ of permuted ones---while the sequences
+it does fail to certify are the short ones, where the evidence genuinely is thin.
+The strict threshold must be read as a $z$ margin, not as a nominal error
+probability: our tail calibration (Table~\ref{tab:tail}) shows the normal rule is
+anti-conservative in the deep tail on long, heavy-tailed sequences, by a factor of
+up to $\NumTailRatioFive{}$ at $10^{-5}$. What justifies a build-breaking threshold
+here is the measured gap between the two populations---the smallest intact $z$ we
+observed is $\NumZMinClean{}$ (and $\NumZMinCleanLong{}$ once $n \ge 500$) against a
+largest permuted $z$ of $\NumZMaxCorrupt{}$---not the nominal level attached to it.
 
 Two things the battery is \emph{not}. It is not a proof of alignment: it rejects
 scrambling, not rotation, reversal, or a shared permutation
