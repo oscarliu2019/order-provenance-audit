@@ -1,0 +1,34 @@
+{
+  "title": "order-provenance-audit: artefacts, reference implementation and verification pipeline for “Silent order corruption in per-sample evaluation artefacts”",
+  "upload_type": "software",
+  "license": "MIT",
+  "creators": [
+    {
+      "name": "Liu, Mianhan",
+      "orcid": "0009-0000-0274-1062",
+      "affiliation": "Independent Researcher, Shanghai, China"
+    },
+    {
+      "name": "Chen, Chen",
+      "orcid": "0009-0001-1991-9370",
+      "affiliation": "Independent Researcher, Shanghai, China"
+    }
+  ],
+  "description": "<p>Complete replication package for the manuscript <em>Silent order corruption in per-sample evaluation artefacts: why the standard negative control cannot detect it, and two tests that can</em> (submitted to the Journal of Systems and Software).</p><p>Contents: the per-run table for 356 single-GPU training runs across seven public forecasting benchmarks, three backbones and four plug-in arms; the 712 per-sample error vectors and the per-window feature tables they are joined against; the autocorrelation order test (AOT) with exact Wald–Wolfowitz randomisation moments and its empirical deep-tail calibration; the cross-arm agreement test (CAT); the order-provenance sidecar contract; the T1 and T2 downstream analyses with equivalence tests in three readings (paired over cells, clustered by dataset, and replicated over independent draws of the defect and of the control); the derived-label distribution table; the paired repair-cost table; a test suite that states the propositions of the paper as executable assertions; and the generators for every macro, table and figure in the manuscript.</p><p><code>tools/verify_paper_numbers.py</code> re-derives every quantitative claim in the manuscript independently from these artefacts and exits non-zero on any mismatch.</p>",
+  "keywords": [
+    "reproducibility",
+    "evaluation pipelines",
+    "silent faults",
+    "data provenance",
+    "negative controls",
+    "time series forecasting",
+    "software engineering for machine learning"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/oscarliu2019/order-provenance-audit",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}
