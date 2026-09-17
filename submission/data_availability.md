@@ -22,8 +22,8 @@ contract and of both tests; a test suite that states the propositions as
 executable assertions; and the generators for `paper/numbers.tex`, every table and
 every figure.
 
-A permanent, citable archive of this release will be deposited with a DOI
-(Zenodo) at the time of submission and the DOI added here.
+The exact release used for this manuscript is archived permanently and citably
+at <https://doi.org/10.5281/zenodo.22809148> (DOI: `10.5281/zenodo.22809148`).
 
 `tools/verify_paper_numbers.py` re-derives every quantitative claim in the
 manuscript independently from those artefacts and exits non-zero on any mismatch,

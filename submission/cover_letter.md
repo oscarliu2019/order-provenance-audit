@@ -62,6 +62,8 @@ without a GPU. The artefacts, the reference implementation, the test suite and t
 manuscript sources are at
 <https://github.com/oscarliu2019/order-provenance-audit>.
 
+The archived release is at <https://doi.org/10.5281/zenodo.22809148>.
+
 **Disclosure of related work by the same authors.** A companion manuscript, *“Per-window
 oracle headroom is not learnable: a feedback-delay audit of plug-in selection for
 time series forecasting,”* is under review elsewhere. It shares this experimental
