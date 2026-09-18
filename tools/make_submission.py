@@ -65,11 +65,14 @@ def main() -> int:
     OUT.mkdir(exist_ok=True)
     stamp = _dt.date.today().strftime("%Y%m%d")
 
+    # EM rejects subdirectories, so the LaTeX archive is built flat and compiled
+    # once before packaging; see tools/make_em_latex_flat.py.
+    r = subprocess.run([sys.executable, "tools/make_em_latex_flat.py"], cwd=ROOT,
+                       capture_output=True, text=True)
+    print(r.stdout.strip() or r.stderr.strip())
+    if r.returncode != 0:
+        raise SystemExit("refusing to package: the flat LaTeX build failed")
     latex_zip = OUT / f"OrderProvenance_EM_latex_{stamp}.zip"
-    with zipfile.ZipFile(latex_zip, "w", zipfile.ZIP_DEFLATED) as z:
-        for src, arc in _latex_members():
-            z.write(src, arc)
-    print(f"{latex_zip.relative_to(ROOT)}  ({latex_zip.stat().st_size/1e6:.2f} MB)")
 
     full_zip = OUT / f"OrderProvenance_submission_{stamp}.zip"
     with zipfile.ZipFile(full_zip, "w", zipfile.ZIP_DEFLATED) as z:
