@@ -21,15 +21,29 @@ take full responsibility for the content of the publication.
 
 ## Relation to other work by the authors
 
-This study and the companion manuscript — *Per-window oracle headroom is not
-learnable: a feedback-delay audit of plug-in selection for time series
-forecasting* — share an experimental infrastructure and a research programme but
-address disjoint questions and report disjoint results: the companion asks whether
-per-window plug-in selection is learnable under legal feedback delay, and this
-paper asks whether a per-sample artefact is in the order its consumer assumes.
-Neither manuscript's claims depend on the other's; the overlap is disclosed so
-that editors and reviewers can assess it directly. The companion manuscript is
-under review elsewhere and can be supplied to the editors on request.
+This study and the companion manuscript — *Large per-window oracle headroom that
+three selector families did not convert: a feedback-delay audit of plug-in
+selection for time series forecasting* — share an experimental infrastructure but
+address disjoint questions and report disjoint results.
+
+Shared between the two manuscripts: the forecasting grid, the trained
+checkpoints, the dataset preparation and checksums, the loader-order defect that
+motivated both audits, and the corrected cross-arm variance term.
+
+Contributed by this manuscript only: the control-degeneracy proposition, the two
+order diagnostics and their measured blind spots, the observed-permutation audit
+of the real defect, the write-side provenance contract and its fault-injection
+evaluation, the dependence-aware and cluster re-analyses, and the repair-cost
+measurement.
+
+Contributed by the companion manuscript only: selector training, the
+feedback-delay model, per-window oracle headroom, and the gating policy.
+
+Neither manuscript's claims depend on the other's acceptance, the shared material
+is described identically in both, and no contribution is claimed twice. The
+overlap is disclosed so that editors and reviewers can assess it directly. The
+companion manuscript is under review elsewhere and can be supplied to the editors
+on request.
 
 ## Ethics
 

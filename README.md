@@ -8,8 +8,8 @@ Archived in Software Heritage: `swh:1:rev:1094bb72d608638a694b763c36a8f7ee875a81
 
 Reproduction package for the manuscript
 
-> **Silent order corruption in per-sample evaluation artefacts: why the standard
-> negative control cannot detect it, and two tests that can**
+> **Silent order corruption in per-sample evaluation artefacts: control
+> degeneration, diagnostic blind spots, and a provenance contract**
 > Mianhan Liu, Chen Chen. Shanghai, China.
 
 [`paper/main.pdf`](paper/main.pdf) is the manuscript. Everything it prints is
@@ -35,22 +35,28 @@ Nothing catches it:
   invariant, because a mean is a function of a multiset;
 * the shape check passes, because `drop_last=False` keeps the length equal to `n`;
 * and the canonical **shuffled-feature negative control is equal in distribution
-  to the defect**, so the control that is supposed to protect the analysis
-  provably cannot fail (Proposition 5 in the paper);
+  to the defect**, so under this fault the control that is supposed to protect the
+  analysis is uninformative by construction (Proposition 5 in the paper);
 * and when the analysis derives its label from several independently written
   vectors — per-sample arm selection is the common case — the control is worse than
   powerless: it keeps the label law intact and therefore reports a *milder* failure
   than the defect causes (Proposition 7).
 
-What survives is structure the aggregate throws away. Consecutive sliding windows
+Some of what the aggregate throws away is recoverable. Consecutive sliding windows
 overlap, so per-window errors are serially dependent (median lag-1 correlation
-`0.9975` over 712 real sequences and 4.27 M windows) and a permutation destroys it
-— that is **AOT**. Several arms
-evaluated on the same windows agree on which windows are hard — that is **CAT**.
-Both read only the stored vectors: no model, no data, no rerun.
+`0.9975` over 712 real sequences and 4.27 M windows) and a *uniform* permutation
+destroys it — that is **AOT**. Several arms evaluated on the same windows agree on
+which windows are hard — that is **CAT**. Both read only the stored vectors: no
+model, no data, no rerun. Both also have blind spots we measured rather than
+assumed: AOT flagged 90.63 % of arms in the real defect but 0 % of the injected
+block permutations, and CAT is defeated when two arms happen to share a loader
+order, which 20 of our 24 real defective groups do — it then certifies 91.67 % of
+genuinely corrupted groups as clean. They are forensic instruments for artefacts
+that already exist, not integrity tests.
 
-The write-side fix is a provenance sidecar plus a reader that refuses to load an
-array for a positional join unless the sidecar says `index` order.
+The write-side fix, and the primary defence, is a provenance sidecar that binds
+each array to a digest of its **ordered sample identifiers** plus a reader that
+refuses a positional join unless the two ordered digests agree.
 
 ---
 
@@ -73,6 +79,9 @@ tools/
   make_artifacts.py       artefacts -> artifacts/*.csv
   backfill_provenance.py  migrate pre-contract sidecars (dry run by default)
   make_contract_coverage.py  what the contract catches -> artifacts/contract_coverage.csv
+  make_cat_revision.py    observed permutations + CAT under controlled sharing
+  make_downstream_revision.py dependence-aware and cluster re-analyses, purge audit
+  make_em_forms.py        submission/*.md -> the .docx files Editorial Manager wants
   paper_assets.py         artifacts -> paper/numbers.tex, tables, figures
   verify_paper_numbers.py independent re-derivation of every claim
 tests/          99 tests; the propositions and the contract as executable statements
@@ -219,10 +228,12 @@ verifies the exact SHA-256 of every file this study used.
 
 ## Related
 
-The companion study — *Per-window oracle headroom is not learnable: a
-feedback-delay audit of plug-in selection for time series forecasting* — shares
-this experimental infrastructure and asks a disjoint question (is per-window
-plug-in selection learnable under legal feedback delay?). Its package is at
+The companion study — *Large per-window oracle headroom that three selector
+families did not convert: a feedback-delay audit of plug-in selection for time
+series forecasting* — shares the forecasting grid, the trained checkpoints, the
+dataset preparation and the same loader-order defect, and asks a disjoint question
+(did the evaluated selectors convert per-window oracle headroom into a deployable
+gain under legal feedback delay?). Its package is at
 <https://github.com/oscarliu2019/plugin-selection-audit>.
 
 ## Licence

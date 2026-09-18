@@ -10,17 +10,25 @@ is publicly released at
 <https://github.com/oscarliu2019/order-provenance-audit>
 
 and comprises: the experiment configuration; the per-run table; the per-sample
-audit outputs (AOT sequence statistics, calibration, sensitivity, the
-certification sweep, cross-arm agreement, the battery); the per-sample feature
-tables; the empirical tail calibration of the order test; the T1 and T2 downstream outputs
-together with the equivalence tests in three readings (paired over cells, clustered
-by dataset, and replicated over eight independent draws of the defect and of the
-control) and
-the derived-label distribution table behind Proposition 7; the
-paired repair-cost table; the reference implementation of the order-provenance
-contract and of both tests; a test suite that states the propositions as
-executable assertions; and the generators for `paper/numbers.tex`, every table and
-every figure.
+audit outputs (order-test sequence statistics, calibration, sensitivity, the
+certification sweep, cross-arm agreement, the battery); the recovered permutations
+of the defective groups and the controlled sharing conditions used to probe the
+independence assumption of the cross-arm test; the per-sample feature tables; the
+empirical tail calibration of the order test; the T1 and T2 downstream outputs
+together with the equivalence tests in three readings (paired over cells,
+clustered by dataset, and replicated over eight independent draws of the defect
+and of the control); the dependence-aware re-analyses (circular block permutation
+and moving-block bootstrap) and the dataset/sample-set cluster bootstraps; the
+dynamic purge audit for both exclusion radii; the derived-label distribution table
+behind the derived-label proposition; the paired repair-cost table; the reference
+implementation of the order-provenance contract, its fault-injection cases and
+both diagnostics; a test suite that states the propositions as executable
+assertions; and the generators for `paper/numbers.tex`, every table and every
+figure.
+
+Per-window error vectors are released as arrays together with their provenance
+sidecars, so that every derived per-sample conclusion can be recomputed rather
+than merely inspected, and the audit can be reproduced without a GPU.
 
 The exact release used for this manuscript is archived permanently and citably
 at <https://doi.org/10.5281/zenodo.22809148> (DOI: `10.5281/zenodo.22809148`).
