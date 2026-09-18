@@ -123,15 +123,22 @@ def set_swhid(rev: str, snp: str | None = None) -> None:
     rev = rev.strip()
     if not re.fullmatch(r"swh:1:rev:[0-9a-f]{40}", rev):
         raise SystemExit(f"not a Software Heritage revision id: {rev}")
-    visit = f", visit \\texttt{{{snp}}}" if snp else ""
     tex = ROOT / "paper/main.tex"
     s = _strip_block(tex.read_text(), SWH_BEGIN, SWH_END)
     anchor = "\\bibliographystyle{elsarticle-num-names}"
+    # Each identifier starts a line: a 40-hex SWHID is one unbreakable box, so it
+    # must be free to sit on a line of its own instead of overflowing the margin.
+    snapshot = (
+        f"; the snapshot of the origin\n\\url{{{REPO_URL}}} that contains it is\n"
+        f"\\texttt{{{snp}}}.\n"
+        if snp
+        else f", taken from origin \\url{{{REPO_URL}}}.\n"
+    )
     block = (
         f"{SWH_BEGIN}\n"
-        "The repository is also archived permanently in Software Heritage: the revision\n"
-        f"from which this manuscript was produced is \\texttt{{{rev}}}\n"
-        f"(origin \\url{{{REPO_URL}}}{visit}).\n"
+        "The repository is also archived permanently in Software Heritage. The revision\n"
+        "from which this manuscript was produced is\n"
+        f"\\texttt{{{rev}}}{snapshot}"
         f"{SWH_END}\n\n"
     )
     s = s.replace(anchor, block + anchor, 1)
