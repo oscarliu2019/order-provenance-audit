@@ -4,6 +4,12 @@
 任何改动都必须先改 `main.tex`，再重新编译并跑 `tools/verify_paper_numbers.py`
 （当前 305/305 通过）。旧稿号 `JSSOFTWARE-D-26-02395` 必须**先撤回**再投新版。
 
+> **投稿状态（2026-09-19）**：大修版已投出，稿号 `JSSOFTWARE-D-26-02403`，
+> EM 状态 `Submitted to Journal`。旧稿 `JSSOFTWARE-D-26-02395` 的撤回请求已于
+> 2026-09-18 发出，编辑部尚未确认；已另发一封信把「新稿替代旧稿」的关系写清，
+> cover letter 里也有 *Relationship to our earlier JSS submission* 一节。
+> 因此下面的「第一步：撤回旧稿」只作为留档，不需要重复执行。
+
 ---
 
 ## 第一步：撤回旧稿（EM 里 Author 没有 withdraw 按钮，只能发信）
