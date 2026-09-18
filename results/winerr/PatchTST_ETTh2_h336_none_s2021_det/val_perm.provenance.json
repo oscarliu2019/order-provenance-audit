@@ -1,8 +1,28 @@
 {
+  "backbone": "PatchTST",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "PatchTST_ETTh2_h336_none_s2021_det",
+  "dataset": "ETTh2",
+  "n_samples": 2545,
   "n_windows": 2545,
   "note": "dataset index of the window at each loader position",
   "order": "loader",
+  "order_semantics": "loader_emission",
+  "ordered_sample_id_digest": "sha256:4d346118a923355d45ef6d2e2d6e6dbd5de06150dd938e73b4d5b52c32b11b4e",
+  "plugin": "none",
+  "pred_len": 336,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "sibling_array",
+    "name": "val_perm"
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 96,
   "split": "val",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:bf679f68563ea8816998761abf53c536485eb4f4cfebeaa5c11ab97542b1ca26"
 }

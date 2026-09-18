@@ -1,7 +1,27 @@
 {
+  "backbone": "DLinear",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "DLinear_ETTm2_h96_revin_s2021_shuf",
+  "dataset": "ETTm2",
+  "n_samples": 11425,
   "n_windows": 11425,
   "order": "loader",
+  "order_semantics": "loader_emission",
+  "ordered_sample_id_digest": "sha256:4d1b93fb651b7c486298e1740c00bc1b5d8c60b839542ba811c95e8d99334933",
+  "plugin": "revin",
+  "pred_len": 96,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "sibling_array",
+    "name": "val_perm"
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 96,
   "split": "val",
-  "val_order": "shuffled"
+  "val_order": "shuffled",
+  "value_digest": "sha256:a1585fb440c172b386a98c2b9502bb986420d8b39680400f1260931097a72f24"
 }

@@ -1,15 +1,15 @@
-\begin{tabular}{llrr}
+\begin{tabular}{llrrr}
 \toprule
-corruption & parameter & sequences & detected (\%) \\
+corruption & parameter & order structure kept (\%) & sequences & AOT flagged (\%) \\
 \midrule
-block-order shuffle, block size & 8 & 60 & 100.0 \\
-block-order shuffle, block size & 32 & 60 & 100.0 \\
-block-order shuffle, block size & 128 & 58 & 100.0 \\
-block-order shuffle, block size & 512 & 57 & 100.0 \\
-partial shuffle, fraction moved & 0.05 & 60 & 100.0 \\
-partial shuffle, fraction moved & 0.10 & 60 & 100.0 \\
-partial shuffle, fraction moved & 0.25 & 60 & 98.3 \\
-partial shuffle, fraction moved & 0.50 & 60 & 98.3 \\
-partial shuffle, fraction moved & 1.00 & 60 & 5.0 \\
+block-order shuffle, block size $b$ & 8 & 87.5 & 60 & 0.00 \\
+block-order shuffle, block size $b$ & 32 & 96.9 & 60 & 0.00 \\
+block-order shuffle, block size $b$ & 128 & 99.2 & 58 & 0.00 \\
+block-order shuffle, block size $b$ & 512 & 99.8 & 57 & 0.00 \\
+partial shuffle, fraction $f$ moved & 0.05 & 95.0 & 60 & 0.00 \\
+partial shuffle, fraction $f$ moved & 0.10 & 90.0 & 60 & 0.00 \\
+partial shuffle, fraction $f$ moved & 0.25 & 75.0 & 60 & 1.67 \\
+partial shuffle, fraction $f$ moved & 0.50 & 50.0 & 60 & 1.67 \\
+partial shuffle, fraction $f$ moved & 1.00 & 0.0 & 60 & 95.00 \\
 \bottomrule
 \end{tabular}

@@ -1,7 +1,27 @@
 {
+  "backbone": "DLinear",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "DLinear_ILI_h36_revin_s2021_det",
+  "dataset": "ILI",
+  "n_samples": 62,
   "n_windows": 62,
   "order": "index",
+  "order_semantics": "dataset_index",
+  "ordered_sample_id_digest": "sha256:2ebe20383ead3895eb187fc239477015bff2035cab9aa8cd2b7e50e20f2c7a4d",
+  "plugin": "revin",
+  "pred_len": 36,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "identity_range",
+    "start": 0
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 36,
   "split": "val",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:3cc1721db1d22defe9920267f9307dc79b78a2fcb2c32a724d2505631cb09e26"
 }

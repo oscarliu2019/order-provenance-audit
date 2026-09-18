@@ -1,8 +1,28 @@
 {
+  "backbone": "DLinear",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "DLinear_ETTm2_h96_fredf_s2021_shuf",
+  "dataset": "ETTm2",
+  "n_samples": 11425,
   "n_windows": 11425,
   "note": "dataset index of the window at each loader position",
   "order": "loader",
+  "order_semantics": "loader_emission",
+  "ordered_sample_id_digest": "sha256:5ca54e0e93f71e7bcf7a61cbd26aca30ec2276e7dea954e772406b62c4ded470",
+  "plugin": "fredf",
+  "pred_len": 96,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "sibling_array",
+    "name": "val_perm"
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 96,
   "split": "val",
-  "val_order": "shuffled"
+  "val_order": "shuffled",
+  "value_digest": "sha256:023cc4e6f2098c8e67ea2db5eeb23316f1fcd98f4bad6232547e29308c3aeb7d"
 }

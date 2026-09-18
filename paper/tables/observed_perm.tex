@@ -1,0 +1,24 @@
+\small
+\begin{tabular}{lr}
+\toprule
+quantity & value \\
+\midrule
+groups of arms over a common sample set & 24 \\
+arms (group $\times$ plugin) & 96 \\
+arms whose validation order is not the identity & 96 \\
+groups with \texttt{val\_loader\_order == val\_index\_order[val\_perm]} & 24 \\
+sharing: one permutation for all arms (\texttt{all\_identical}) & 2 \\
+sharing: some arms share (\texttt{partial\_shared}) & 20 \\
+sharing: every arm distinct (\texttt{all\_distinct}) & 2 \\
+identical arm pairs per group: 0, 1, 2, 3, 6 pairs & 2 / 7 / 2 / 11 / 2 \\
+mean Spearman between arm permutations, median (min, max) & 0.4874 (0.0001, 1.0000) \\
+CAT certifies the observed loader order & 22 / 24 (91.67\%) \\
+CAT median $\bar{\rho}$, observed loader order & 0.4189 \\
+CAT certifies the intact index order & 24 / 24 (100.00\%) \\
+CAT median $\bar{\rho}$, intact index order & 0.9509 \\
+AOT flags the observed loader order & 87 / 96 (90.63\%) \\
+arms AOT fails to flag & 9 \\
+groups with at least one unflagged arm & 6 / 24 \\
+smallest AOT $p$ over all arms & 0.00412 \\
+\bottomrule
+\end{tabular}

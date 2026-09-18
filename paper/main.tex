@@ -71,7 +71,7 @@
 \shortauthors{M. Liu and C. Chen}
 
 \title[mode = title]{Silent order corruption in per-sample evaluation artefacts:
-why the standard negative control cannot detect it, and two tests that can}
+control degeneration, diagnostic blind spots, and a provenance contract}
 
 \author[1]{Mianhan Liu}[orcid=0009-0000-0274-1062]
 \cormark[1]
@@ -96,8 +96,8 @@ Empirical machine learning is no longer only aggregate: papers report per-sample
 error tables, difficulty analyses, per-instance routing and sample-level
 ablations. Each joins two artefacts written by different parts of a pipeline, and
 the join is positional. In a widely used forecasting library, one default---the validation loader shuffles, the test loader does not---turns a
-per-window artefact taken from the validation split into a uniformly random
-permutation of the intended vector, and the fault survives the usual guards:
+per-window artefact taken from the validation split into a permutation of the
+intended vector, and the fault survives the usual guards:
 aggregate metrics, early stopping and model selection are exactly invariant, and
 the vectors are equally long. Our central result is structural.
 Under uniform shuffling the permuted table is \emph{equal in distribution} to the
@@ -105,14 +105,25 @@ table produced by the canonical shuffled-feature negative control, for every
 statistic that reads the joined rows as an unordered collection; a null validated
 by that control is as consistent with a broken join as with a true null. When
 labels are derived from several independently written vectors, the control instead
-preserves the label law and no longer bounds the damage. The discarded order information is
-nevertheless recoverable: we give two post-hoc tests that read only the stored
-vectors---an autocorrelation order test with exact randomisation
-moments, and a cross-arm agreement test for data without serial structure---and
-evaluate them on \NumRuns{} single-GPU runs. Downstream, the fault erases a real
+preserves the label law and no longer bounds the damage. Some of the discarded
+order information is recoverable, but less than one might hope: we specify two
+post-hoc diagnostics that read only the stored vectors---an autocorrelation order
+test with exact randomisation moments and a cross-arm agreement test---and
+we map their blind spots on \NumRuns{} single-GPU runs rather than only their
+power. On real defective artefacts the autocorrelation test flags
+\NumObsAotFlagPct\% of arms, but on injected block and mild partial permutations
+it flags at most \NumSensFlagPartialQuarter\%; the cross-arm test is defeated
+whenever two arms happen to share a loader order, which
+\NumObsPermPartialShared{} of our \NumObsPermGroups{} real defective groups do,
+and it then certifies \NumObsCatCertPct\% of them as clean. The primary defence
+is therefore write-side: we specify and implement a provenance contract that
+binds each array to an ordered sample-identifier digest, a value digest and a
+sample-set identity, fails closed, and stops
+\NumContractDetected{} of \NumContractFaults{} injected identity faults---while
+we enumerate the \NumContractUndetected{} it does not stop. Downstream, the fault erases a real
 association while leaving the headline metric bit-identical, and the one-line
-repair moves reported test error by up to \NumTaxMaxAbs\%. A provenance
-contract, the tests and all artefacts are released.
+repair moves reported test error by up to \NumTaxMaxAbs\%. The contract, the
+diagnostics and all artefacts are released.
 \end{abstract}
 
 \begin{keywords}
@@ -188,31 +199,62 @@ indistinguishable from a silent order bug. We wrote this paper because we hit th
 fault ourselves while auditing per-window plug-in selection \citep{companion2026},
 where the conclusion under study was precisely of that shape.
 
-The situation is not hopeless, and the reason is specific: the aggregate discards
-the information needed to detect the fault, but the artefact itself does not. Two
-structures survive in a per-sample error vector and are destroyed by a
+The situation is not hopeless, but the recoverable margin is narrower than the
+fault's simplicity suggests. The aggregate discards the information needed to
+detect the fault; the artefact itself retains some of it. Two
+structures survive in a per-sample error vector and are weakened by a
 permutation. (i) In sliding-window forecasting, consecutive windows overlap in
 $L+H-1$ of their $L+H$ time steps, so consecutive per-window errors are strongly
 dependent; the intact vector therefore has a serial correlation near one, and a
-permuted vector has none. We turn this into the \emph{autocorrelation order test}
+uniformly permuted vector has none. We turn this into the
+\emph{autocorrelation order test}
 (AOT), whose randomisation distribution has exact first and second moments
 \citep{wald1943}, hence an $O(n)$ $p$-value with no resampling. (ii) When several
 arms are evaluated on the same samples, their per-sample errors agree strongly
-because sample difficulty dominates arm identity; a defective pipeline draws an
-\emph{independent} permutation per arm, so the agreement collapses. That is the
+because sample difficulty dominates arm identity; if a defective pipeline draws an
+\emph{independent} permutation per arm, the agreement collapses. That is the
 \emph{cross-arm agreement test} (CAT), which needs no serial structure and
 therefore applies to independent and identically distributed data, where AOT has
 no signal. Neither test needs the model, the data or a rerun---they read the
 published vectors, so a third party can audit an artefact they merely downloaded.
 
-Both tests are diagnostics, not guarantees, and we are explicit about what they
-miss: AOT is invariant to reversal and to circular rotation, and CAT is invariant
-to a permutation applied identically to all arms. The primary defence has to be a
-write-side one, and it is cheap: a sidecar record that states the order an array
-is in, plus a reader that refuses to load an array for a positional join unless
-the record says index order. We specify the contract, implement it, and show that
-it converts the fault from silent to loud at a cost of a few hundred bytes per
-artefact.
+Our empirical contribution about these two diagnostics is mostly negative, and we
+report it that way because it is what the data support. Both tests have
+sharp operating boundaries, and in this study both boundaries turned out to be
+inside the space of faults that a real pipeline produces. AOT keys on the loss of
+serial dependence, so it flags a near-uniform permutation---%
+\NumObsAotFlagPct\% of arms on our real defective artefacts---but it does not
+flag a corruption that preserves long contiguous runs: over injected block
+permutations at four block lengths its flag rate is
+\NumSensFlagBlockMax\%, and for partial permutations of $5\%$ and $10\%$ of
+positions it is \NumSensFlagPartialMildMax\%. CAT keys on the collapse of
+cross-arm agreement, which presumes that each arm was permuted independently. We
+audited that presumption against our own archive instead of assuming it, and it
+does not hold: of \NumObsPermGroups{} real defective four-arm groups, only
+\NumObsPermAllDistinct{} have pairwise distinct loader orders, while
+\NumObsPermPartialShared{} share at least one order between two arms and
+\NumObsPermAllIdentical{} share one order across all four. Under exactly that
+sharing structure CAT certifies \NumObsCatCertGroups{} of
+\NumObsPermGroups{} genuinely corrupted groups as clean. A controlled sweep
+confirms the mechanism: with independently drawn permutations CAT flags
+\NumCatCondGroups{} of \NumCatCondGroups{} groups, and with even a single shared
+pair among four arms it flags none. The honest reading is that AOT is a
+targeted diagnostic for near-random order corruption and CAT requires
+independently produced orders; neither is a general integrity check.
+
+That is why the primary defence has to be a write-side one, and why we spend more
+of this paper on it than the original framing would suggest. A sidecar that
+merely names the order an array is in is not enough---an equally long array from a
+different sample set, an array rotated by one, or a stale sidecar all survive such
+a check. We therefore specify a contract that binds each array to a digest of its
+\emph{ordered} sample identifiers, a digest of its own values, and the identity of
+the sample set it came from, and that fails closed when any of those disagree. We
+implement it, back-fill it over \NumBackfillDirs{} archived cells, and test it
+adversarially: it stops \NumContractDetected{} of \NumContractFaults{} injected
+faults, including rotation, arbitrary permutation, stale sidecars and equally long
+arrays from a different horizon. It does not stop
+\NumContractUndetected{}, and we enumerate them, because a contract whose
+limits are unstated invites exactly the misplaced confidence this paper is about.
 
 Finally, we quantify a practical trap in the repair. Removing the shuffle from a
 validation loader changes how many pseudo-random numbers the run consumes and
@@ -235,7 +277,8 @@ that it attenuates associations monotonically towards the null
 \item \textbf{Control degeneration.} We prove that the corrupted table and the
 canonical shuffled-feature negative control are equal in distribution
 (Proposition~\ref{prop:degeneracy}), so the control that is supposed to protect a
-per-sample claim provably cannot detect this fault. To our knowledge this failure
+per-sample claim is, for this fault, uninformative by construction: no statistic of
+the joined table can separate the two arms. To our knowledge this failure
 mode of negative controls has not been stated. We verify the equality empirically
 with equivalence tests rather than with a failure to reject
 (Section~\ref{sec:res-downstream}). We also identify the one case where the two
@@ -243,27 +286,38 @@ differ---analyses whose label is derived from several independently written
 vectors, such as per-sample arm selection---and show that the difference runs the
 wrong way: the control preserves the label law and therefore reports a
 \emph{milder} failure than the defect causes (Proposition~\ref{prop:derived}).
-\item \textbf{Two post-hoc order tests with known error rates.} AOT, with exact
-randomisation moments and a closed-form power expression, and CAT, for data
-without serial structure. We calibrate both against Monte-Carlo nulls, map their
-power against corruption severity and against loss of window overlap, and state
-the transformations to which each is blind (Sections~\ref{sec:tests},
-\ref{sec:res-detect}).
-\item \textbf{A provenance contract for per-sample artefacts,} with a reference
-implementation, a write-side and read-side API, and a test suite that
-demonstrates the fault is caught (Section~\ref{sec:contract}).
+\item \textbf{Two post-hoc order diagnostics, and a measurement of where they
+stop working.} AOT, with exact randomisation moments and a closed-form power
+expression, and CAT, for data without serial structure. We calibrate both against
+Monte-Carlo nulls, and we then spend most of the evaluation on their boundaries
+rather than on their power: the corruption severities AOT does not flag, the
+cross-arm order-sharing patterns that defeat CAT, and---using the observed
+permutations in our own archive rather than simulated ones---how often those
+adverse conditions actually occur (Sections~\ref{sec:tests},
+\ref{sec:res-detect}). We also correct the analytic reference distribution for
+CAT, whose earlier form omitted the $\binom{K}{2}$ pairs being averaged and was
+consequently mis-scaled by $\NumCatSdRatioNaiveMedian{}$
+(Section~\ref{sec:cat}).
+\item \textbf{A provenance contract that verifies sample identity, not just an
+order label,} with a reference implementation, a write-side and read-side API, a
+back-fill over the archived artefacts, and an adversarial test suite. We report a
+machine-generated coverage table listing both the \NumContractDetected{} faults
+the contract stops and the \NumContractUndetected{} it does not
+(Section~\ref{sec:contract}).
 \item \textbf{An empirical study} of \NumRuns{} single-GPU runs over
 \NumDatasets{} datasets, \NumBackbones{} backbones, \NumArms{} arms and four
 horizons (\NumGpuHours{} GPU hours), which (a) confirms on real artefacts that the
 permutation is exactly a permutation and the aggregate is unchanged to machine
-precision, (b) measures detector operating characteristics on
+precision, (b) measures detector operating characteristics and blind spots on
 \NumSequences{} real sequences covering \NumWindowsAudited{} window-level
 evaluations, (c) shows a
 real per-window association collapsing from Spearman
 \NumTaskOneRhoIndexMedian{} to \NumTaskOneRhoDefectMedian{} under the defect,
-and (d) quantifies the cost of the repair.
+using dependence-aware and cluster-aware inference rather than an
+independent-pairs approximation, and (d) quantifies the cost of the repair.
 \item \textbf{Actionable guidance} for authors, reviewers and artefact
-evaluators, in the form of a checklist tied to the tests
+evaluators, in the form of a checklist tied to the contract and, where a
+diagnostic is applicable, to the tests
 (Section~\ref{sec:guidance}).
 \end{enumerate}
 
@@ -271,11 +325,21 @@ evaluators, in the form of a checklist tied to the tests
 We do not claim that any published result is wrong. We did not audit other
 people's artefacts; we characterise a fault we found in our own pipeline, built on
 a public library whose defaults make the fault easy to reach, and we quantify what
-it does. We do not claim that the two tests certify correctness: they certify that
-a specific, common corruption is absent, and Section~\ref{sec:limits} lists what
-they cannot see. We do not claim that the fault is confined to time series; the
+it does. We do not claim that the two diagnostics detect order corruption in
+general. They were not observed to detect block permutations or mild partial
+permutations under the protocol we evaluated, and CAT was not observed to detect
+any corruption once two arms shared a loader order; what they certify is the
+absence of a specific, near-uniform scrambling, on artefacts of the lengths we
+studied, and Section~\ref{sec:limits} lists what they cannot see. We do not claim
+that the contract certifies correctness: it certifies which sample each number
+belongs to, never that the number is the right statistic. We do not claim that the
+fault is confined to time series; the
 formal statements only require a per-sample artefact and a positional join, and
-sliding windows merely make one of the two tests unusually powerful.
+sliding windows merely make one of the two diagnostics unusually powerful. All
+statistical statements below are calibrated at the sample sizes we evaluated;
+where a claim rests on the \NumDepDatasets{} datasets in the grid rather than on
+the \NumDepCells{} runs, we report it with the datasets as the resampling unit and
+accept the resulting wide intervals.
 
 % =====================================================================
 \section{The fault}
@@ -379,7 +443,10 @@ Let $T$ be any functional of a vector that depends only on its multiset of
 entries, and let $a$ be as in \eqref{eq:defect}. Then $T(a) = T(\ell)$ for every
 $\sigma \in S_n$. In particular the validation mean, every quantile, the
 histogram, and hence the early-stopping trajectory, the selected checkpoint and
-every aggregate table computed from the validation split are unchanged.
+every order-symmetric aggregate computed from the validation split are unchanged.
+Aggregates that are not order-symmetric---a per-window plot, a rolling statistic,
+or any join keyed on position---are of course affected; the point of the
+proposition is that these are not the quantities a training pipeline checks.
 \end{proposition}
 
 \begin{pf}
@@ -604,14 +671,39 @@ test the artefact's \emph{order} directly, before any join, using structure that
 the aggregate discards. That is the subject of the next section.
 
 % =====================================================================
-\section{Two post-hoc order tests}
+\section{Two post-hoc order diagnostics}
 \label{sec:tests}
 
-We now build tests that read a stored per-sample vector and ask whether it is in
-index order. The design constraints are practical: no access to the model, the
+We now build diagnostics that read a stored per-sample vector and ask whether it
+retains the structure an index-ordered vector should have. The design constraints
+are practical: no access to the model, the
 data or a rerun; a cost of at most $O(n)$ or a few seconds of resampling; and
 known error rates, because a diagnostic without a calibrated false-positive rate
-will be ignored.
+will be ignored. Because the direction of the test is a recurring source of
+confusion---including in an earlier version of this manuscript---we fix
+terminology before stating anything else.
+
+\paragraph{Terminology}
+Each diagnostic tests a null hypothesis of \emph{complete randomisation}. We use
+three terms and never interchange them.
+\begin{itemize}
+\item \emph{Certified structured order}: the null of complete randomisation was
+rejected ($p < \alpha$). The vector retains the dependence structure that an
+intact vector has. This is evidence \emph{against} uniform scrambling; it is not
+proof of alignment, because many misalignments preserve structure.
+\item \emph{Not certified}: the null was not rejected. There is insufficient
+evidence of structured order. This is not proof that the vector was scrambled: a
+short vector, a weakly dependent loss, or a genuinely aligned but
+low-autocorrelation artefact all fail to certify.
+\item \emph{Corruption detected}: the diagnostic failed to certify a vector that,
+in a controlled experiment, we know to be corrupted. This is an evaluation term.
+It is only available when the fault label is known, and it must never be used to
+describe a verdict on an artefact of unknown provenance.
+\end{itemize}
+The practical consequence is asymmetric and worth stating plainly. A certified
+vector may still be misaligned. An uncertified vector may still be correct. What
+the diagnostics buy is a cheap, high-signal alarm on one specific failure mode,
+not an integrity guarantee.
 
 \subsection{AOT: the autocorrelation order test}
 \label{sec:aot}
@@ -663,8 +755,11 @@ Section~\ref{sec:res-detect} shows the two agree to
 $\NumCalibMaxAbsDiff{}$ in the worst case over \NumCalibSeq{} sequences.
 
 \paragraph{Certification rule and power}
-Fix a level $\alpha$. We say a vector is \emph{certified in index order} at level
-$\alpha$ if $p < \alpha$. Because $\operatorname{Var}_{H_0}[r] \approx n^{-1}$ up
+Fix a level $\alpha$. We say a vector is \emph{certified in structured order} at
+level $\alpha$ if $p < \alpha$, i.e.\ if the complete-randomisation null is
+rejected. On a vector known to be corrupted, $p < \alpha$ therefore means the
+diagnostic \emph{failed} to flag the corruption. Because
+$\operatorname{Var}_{H_0}[r] \approx n^{-1}$ up
 to a kurtosis correction, the serial correlation that the test detects with
 probability $1-\beta$ is
 \begin{equation}
@@ -683,6 +778,14 @@ decreases---longer stride, subsampled windows, independent samples---$\rho$ fall
 and the test loses power smoothly, which is why we pair it with a second test that
 does not depend on serial structure at all.
 
+Equation~\eqref{eq:power} is a power expression against the alternative
+``exchangeable values'', and that is the only alternative it covers. A corruption
+that leaves long contiguous runs intact---a block permutation, a partial
+permutation of a few per cent of positions, an off-by-one shift---does not move
+$\rho$ appreciably, so \eqref{eq:power} says nothing about it and the test has
+essentially no power against it. Section~\ref{sec:res-detect} measures this
+directly rather than leaving it as a caveat, and the measurement is unfavourable.
+
 \paragraph{How deep the normal tail may be read}
 The moments \eqref{eq:wwmean}--\eqref{eq:wwvar} are exact, but the normal
 reference is not, so a $p$-value quoted at $10^{-6}$ is an extrapolation of a
@@ -698,9 +801,14 @@ close to nominal at $\alpha = 10^{-2}$ (worst ratio
 $\NumTailRatioTwo{}\times$) and progressively \emph{anti-conservative} deeper in
 the tail: up to $\NumTailRatioThree{}\times$ nominal at $10^{-3}$,
 $\NumTailRatioFour{}\times$ at $10^{-4}$ and $\NumTailRatioFive{}\times$ at
-$10^{-5}$; at $10^{-6}$ the exceedance counts are too small to resolve at this
-$B$. Levels below $10^{-3}$ must therefore be read as thresholds on $z$, not as
-calibrated error probabilities.
+$10^{-5}$; at $10^{-6}$ the largest observed ratio is
+$\NumTailRatioSix{}\times$ nominal, on exceedance counts small enough that the
+ratio itself is poorly resolved at this $B$. Across the
+\NumTailRatioAboveOneRows{} sequence-by-level cells we measured,
+\NumTailRatioAboveOnePct\% are anti-conservative. Levels below $10^{-3}$ must
+therefore be read as thresholds on $z$, not as calibrated error probabilities, and
+we do not attach an exact guarantee to any of them: what we report is an empirical
+calibration at the sample sizes and permutation budget evaluated here.
 
 Two facts keep this from undermining the certification rule, and both are
 measured rather than assumed. First, the approximation errs in the harmless
@@ -737,22 +845,26 @@ $r$ is invariant to circular rotation and, up to $O(n^{-1})$ terms, to reversal;
 it is also insensitive to a permutation that keeps long contiguous runs intact, in
 the sense that power depends on how much dependence survives. Rotation and
 reversal are not idle worries---they are what an off-by-one write or a reversed
-sort produces---so AOT must be read as a test against \emph{scrambling}, not as a
+sort produces---so AOT must be read as a diagnostic against near-uniform
+\emph{scrambling}, not as a
 proof of alignment. Section~\ref{sec:res-detect} measures the boundary
-empirically with block and partial corruptions.
+empirically with block and partial corruptions, and finds it to be tight: the
+diagnostic covers essentially only the uniform case.
 
 \subsection{CAT: the cross-arm agreement test}
 \label{sec:cat}
 
 AOT needs serial dependence. Many settings have none: independent samples,
 classification, tabular data, or forecasting evaluated on a strided,
-non-overlapping window grid. In those settings a second, orthogonal structure is
-usually available, because empirical papers rarely evaluate one arm. When $K$ arms
+non-overlapping window grid. In those settings a second structure is
+sometimes available, because empirical papers rarely evaluate one arm. When $K$ arms
 (plug-ins, hyper-parameter settings, seeds, competing models) are evaluated on the
 same $n$ samples, their per-sample losses are strongly rank-correlated, because
-sample difficulty dominates arm identity. A defective pipeline draws an
-\emph{independent} permutation for each arm---each arm is a separate process with
-its own loader and its own random state---so the agreement collapses.
+sample difficulty dominates arm identity. If a defective pipeline draws an
+\emph{independent} permutation for each arm, the agreement collapses. Whether it
+does draw independent permutations is an empirical question about the pipeline,
+not a property of the fault, and Section~\ref{sec:res-detect} shows that in our
+own archive it usually does not.
 
 \paragraph{Statistic and null}
 Let $E \in \mathbb{R}^{K \times n}$ hold the stored per-sample losses, one row per
@@ -763,22 +875,53 @@ arm. Define
 \label{eq:cat}
 \end{equation}
 with $\rho_S$ the Spearman correlation. The null is ``each row was independently
-permuted''; we draw $B$ independent row-wise permutations of the observed ranks
-and report
+and uniformly permuted''; we draw $B$ independent row-wise permutations of the
+observed ranks and report
 $p = (1 + \#\{b : \bar{\rho}_b \ge \bar{\rho}\})/(B+1)$, which is exact for finite
-$B$. A normal reference $\bar{\rho}\sqrt{n-1}$ is also reported and agrees closely
-in our runs, but the Monte-Carlo $p$-value is the one we use, because the pairwise
-terms in \eqref{eq:cat} are dependent.
+$B$. This Monte-Carlo $p$-value is the one we use.
 
-\paragraph{Properties}
+\paragraph{The analytic reference, corrected}
+An earlier version of this work also reported a normal reference
+$z = \bar{\rho}\sqrt{n-1}$. That expression is wrong: it is the scale appropriate
+to a \emph{single} Spearman correlation, whereas \eqref{eq:cat} averages
+$M = \binom{K}{2}$ of them. Under the null the $M$ pairwise correlations are
+uncorrelated to leading order, so
+$\operatorname{Var}_{H_0}[\bar{\rho}] \approx 1/[M(n-1)]$ and the correct
+reference is
+\begin{equation}
+z \;=\; \bar{\rho}\,\sqrt{M\,(n-1)}, \qquad M = \binom{K}{2}.
+\label{eq:catz}
+\end{equation}
+For the $K = 4$ arms used throughout this study the omitted factor is
+$\sqrt{6}$, so the earlier statistic understated $z$ by a factor of about
+$\NumCatSdRatioNaiveTheory{}$. We verified \eqref{eq:catz} against the
+Monte-Carlo null on the \NumCatAnalyticRows{} independent-permutation groups: the
+corrected analytic $p$-value agrees with the Monte-Carlo $p$-value to
+$\NumCatAnalyticErrMax{}$ in the worst case and $\NumCatAnalyticErrMedian{}$ at
+the median, against $\NumCatAnalyticNaiveErrMax{}$ and
+$\NumCatAnalyticNaiveErrMedian{}$ for the earlier form, and the ratio of the
+corrected theoretical standard deviation to the Monte-Carlo one is
+$\NumCatSdRatioCorrectedMedian{}$ at the median. We report
+\eqref{eq:catz} for completeness and use the Monte-Carlo $p$-value in all
+verdicts, because \eqref{eq:catz} inherits the independence assumption that
+Section~\ref{sec:res-detect} shows to be the binding constraint.
+
+\paragraph{Properties and the assumption that matters}
 CAT requires no serial structure, so it works exactly where AOT does not. It does
-require $K \ge 2$ arms stored against the same sample set, and---this is its
-blind spot, and the dual of AOT's---it is invariant to a permutation applied
-\emph{identically} to every arm. A pipeline that shuffles all arms with one shared
-seed, or that sorts all arms' outputs by some common key, passes CAT and fails
-AOT. Conversely a pipeline that scrambles arms independently on
-non-overlapping windows fails CAT and cannot be judged by AOT. The two tests are
-complementary by construction, which is why we run them as a battery.
+require $K \ge 2$ arms stored against the same sample set, and it requires those
+arms to have been permuted \emph{differently}. It is invariant to a permutation
+applied identically to every arm, and---this is the part that matters in practice
+and that we underestimated---the invariance degrades gracefully rather than
+abruptly, so \emph{partial} sharing is nearly as damaging as full sharing. A
+pipeline that shuffles all arms with one shared
+seed, or that sorts all arms' outputs by some common key, or that merely reuses a
+loader seed across two of four arms, retains enough cross-arm rank structure to
+pass CAT while being thoroughly misaligned. Conversely a pipeline that scrambles
+arms independently on
+non-overlapping windows fails CAT and cannot be judged by AOT. The two
+diagnostics are complementary in the transformations they cover, which is why we
+run them as a battery; they are not jointly complete, and
+Section~\ref{sec:res-detect} quantifies the gap.
 
 \subsection{The battery, and its honest reading}
 \label{sec:battery}
@@ -800,11 +943,17 @@ here is the measured gap between the two populations---the smallest intact $z$ w
 observed is $\NumZMinClean{}$ (and $\NumZMinCleanLong{}$ once $n \ge 500$) against a
 largest permuted $z$ of $\NumZMaxCorrupt{}$---not the nominal level attached to it.
 
-Two things the battery is \emph{not}. It is not a proof of alignment: it rejects
-scrambling, not rotation, reversal, or a shared permutation
-(Section~\ref{sec:limits}). And it is not a substitute for write-side provenance:
-a test can only be run by someone who thinks to run it, whereas a contract fails
-closed. We therefore present the battery as an audit tool for artefacts that
+Three things the battery is \emph{not}. It is not a proof of alignment: it
+rejects near-uniform scrambling, not rotation, reversal, block permutation, mild
+partial permutation, or an order shared between arms
+(Section~\ref{sec:limits}). It is not a general integrity test: on the injected
+corruptions of Section~\ref{sec:res-detect} the covered region of fault space is
+narrow, and on the real defective groups in our archive CAT is inside its blind
+spot far more often than outside it. And it is not a substitute for write-side
+provenance: a test can only be run by someone who thinks to run it, whereas a
+contract fails
+closed. We therefore present the battery as a targeted audit tool for artefacts
+that
 already exist---including artefacts one has downloaded rather than produced---and
 the contract of the next section as the primary defence.
 
@@ -823,32 +972,68 @@ that explicit, and we deliberately choose the smallest mechanism that fails
 closed.
 
 \paragraph{The contract}
-Every per-sample artefact is written together with a sidecar record stating (i)
-the order the array is in, drawn from a closed vocabulary
-(\texttt{index}, \texttt{loader}, \texttt{sorted:$\langle$key$\rangle$}), (ii) the
-length, (iii) a content hash, (iv) the identity of the sample set (dataset, split,
-look-back, horizon), and (v) the code version that wrote it. Readers do not open
+Every per-sample artefact is written together with a sidecar record. An earlier
+version of this work recorded only the order the array claimed to be in, drawn
+from a closed vocabulary, plus its length. That is not enough, and the gap is
+worth stating because it is the gap a reader would assume closed: an
+equally long array from a different horizon, an array rotated by one position, an
+array permuted arbitrarily, and a sidecar left behind by a previous run all pass a
+label-and-length check. The contract we now specify and implement binds each array
+to the identity of the samples it describes.
+
+The record carries: (i) a \texttt{schema\_version}, so a reader that does not
+recognise the format refuses rather than guesses; (ii) the \texttt{split}; (iii)
+\texttt{n\_samples}; (iv) an \texttt{ordered\_sample\_id\_digest}, a hash of the
+\emph{ordered} list of canonical sample identifiers, which pins both the sample set
+and its order; (v) a \texttt{value\_digest}, a hash of the array's own bytes, which
+pins the array to this sidecar and not to a previous one; (vi)
+\texttt{order\_semantics} from a closed vocabulary
+(\texttt{dataset\_index}, \texttt{loader\_emission}); (vii) the cell identity
+(dataset, backbone, plug-in, look-back, horizon, seed); and (viii) the
+\texttt{producer\_commit}, recorded explicitly as \texttt{unknown} when it cannot
+be determined rather than omitted.
+
+\paragraph{The design principle}
+The point that does the work is not the list of fields but the following rule.
+Every sample must have a stable identifier, and consumers must join \emph{by that
+identifier}, not by position. For sliding-window forecasting the natural canonical
+identifier is the window's origin in the underlying series, qualified by the sample
+set it belongs to; we use
+\texttt{(dataset, split, look-back, horizon, window\_origin)}, which is
+deterministically reconstructible and therefore back-fillable over an existing
+archive. Where a positional read is required for performance, the reader must
+compare ordered sample-identifier digests \emph{before} reading, and raise on
+mismatch. Readers do not open
 arrays; they call a loader that takes the \emph{required} order as an argument and
-raises if the record is missing, if the order differs, or if the length disagrees.
-Order-symmetric consumers---anything computing a mean---explicitly pass
-\texttt{None} and thereby document that they do not care.
+validates the whole record, raising a typed exception on a missing field, an
+unrecognised schema, a digest mismatch, a split mismatch, a length mismatch or an
+out-of-vocabulary order label. Order-symmetric consumers---anything computing a
+mean---explicitly pass
+\texttt{None} and thereby document that they do not care. Legacy artefacts written
+before the contract are accepted only when the caller opts in explicitly, and that
+path warns; the default is to fail closed.
 
 \begin{lstlisting}[caption={The read side of the contract. The default is to
-require index order, so a positional join cannot be written by accident; an
-order-symmetric consumer must say so explicitly.},label={lst:contract}]
-def load_series(run_dir, name, require_order="index"):
-    """Load a per-sample array under the order contract."""
+require index order and full validation, so a positional join cannot be written by
+accident; an order-symmetric consumer must say so explicitly, and a pre-contract
+artefact must be opted into explicitly.},label={lst:contract}]
+def load_series(run_dir, name, require_order="index",
+                expect_n=None, legacy_ok=False):
+    """Load a per-sample array under the provenance contract."""
     side = run_dir / f"{name}.provenance.json"
     if not side.exists():
-        raise ProvenanceError(f"{name}: no provenance sidecar; refusing to load")
+        raise MissingFieldError(f"{name}: no provenance sidecar; refusing to load")
     meta = json.loads(side.read_text())
     values = np.load(run_dir / f"{name}.npy")
-    if require_order is not None and meta["order"] != require_order:
-        raise ProvenanceError(
-            f"{name}: stored in {meta['order']!r} order, "
-            f"{require_order!r} required for a positional join")
-    if meta["n"] != values.size:
-        raise ProvenanceError(f"{name}: sidecar says {meta['n']}, array has {values.size}")
+    if is_legacy_sidecar(meta):
+        if not legacy_ok:
+            raise SchemaVersionError(
+                f"{name}: sidecar predates {SCHEMA_VERSION}; "
+                f"pass legacy_ok=True to accept it unverified")
+        warnings.warn(f"{name}: legacy sidecar, identity unverified",
+                      ProvenanceWarning)
+        return values
+    validate_sidecar(meta, values, require_order=require_order, expect_n=expect_n)
     return values
 \end{lstlisting}
 
@@ -857,23 +1042,62 @@ Producing an index-order artefact from a shuffling loader does not require
 disabling the shuffle---which, as Section~\ref{sec:res-tax} shows, has a cost. It
 requires recording \emph{which} sample each entry belongs to. We wrap the dataset
 so that each item carries its own index, accumulate losses into a preallocated
-vector at those indices, and write the result as \texttt{index} order; the
+vector at those indices, and write the result as \texttt{dataset\_index} order; the
 loader-order vector and the visiting permutation are written alongside, tagged
 honestly, so that the defect can be reconstructed for study rather than only
 avoided. The recorder is streaming: it stores one scalar per sample, never the
 predictions, so the memory cost is $O(n)$ floats and the artefact for our longest
-split is under $100$~kB.
+split is under $100$~kB. Because the canonical identifier is reconstructible, we
+were able to back-fill the contract over the whole existing archive:
+\NumBackfillDirs{} cells and \NumBackfillSidecars{} sidecars, with
+\NumBackfillFailures{} failures, after which every array in the archive reads under
+the strict path and every analysis in this paper reproduces bit-for-bit.
 
 \paragraph{Cost and coverage}
-The sidecar is a few hundred bytes; the reader adds one file read. In exchange the
-fault becomes impossible to reach silently: the join in Listing~\ref{lst:down}
-raises immediately, before any statistic is computed, and the message names the
-order mismatch rather than reporting a shape. The contract also catches the cases
-the tests cannot see---rotation, reversal, a shared permutation---because it never
-relies on inferring order from content. Its weakness is the mirror image: it
-protects only artefacts written by code that adopts it, which is why the tests of
+The sidecar is a few hundred bytes; the reader adds one file read and two hashes.
+To characterise what this buys we injected \NumContractFaults{} distinct identity
+faults and recorded which clause fires
+(Table~\ref{tab:contract}). The contract stops \NumContractDetected{} of them,
+including the transformations the diagnostics of Section~\ref{sec:tests} cannot
+see: circular rotation, arbitrary permutation, truncation, a stale sidecar, an
+equally long array from a different horizon or split, and a loader-order array
+mislabelled as index order. An adversarial suite of
+\NumContractAdversarialTests{} tests exercises these paths, inside a repository
+suite of \NumContractRepoTests{} tests.
+
+It does not stop \NumContractUndetected{}, and we list them rather than leave them
+implicit, because the failure mode this paper is about is precisely a safeguard
+trusted beyond its scope. The most important is this: if two producers
+independently write artefacts using the \emph{same} wrong loader order, each
+sidecar is internally consistent and both declare the same ordered identifiers, so
+the contract sees a legitimate join. Nothing in the record can reveal that the
+shared order is semantically wrong; only a diagnostic such as AOT, or the raw
+dataset indices, can. The remaining four are: an explicit opt-out for
+order-invariant consumers of pre-contract arrays, which warns but does not raise;
+a positional join truncated to the shorter of two lengths, where ordered digests
+are not comparable and only cell identity is checked; a change in the upstream data
+or preprocessing, since the identifier carries no hash of the raw series; and a
+per-sample value that is computed wrongly but recorded consistently, since the
+contract certifies which sample a number belongs to and never that the number is
+the right statistic. The contract's other structural weakness is the mirror image
+of its strength: it
+protects only artefacts written by code that adopts it, which is why the
+diagnostics of
 Section~\ref{sec:tests} remain necessary for everything already published.
 Section~\ref{sec:guidance} states how we think the two should be combined.
+
+\begin{table}[t]
+\centering
+\caption{Machine-generated coverage of the provenance contract over
+\NumContractFaults{} injected identity faults: \NumContractDetected{} are stopped
+by a named clause, \NumContractUndetected{} are not. The uncovered rows are
+reported in full because a contract trusted beyond its scope reproduces the
+failure mode this paper is about. Generated by
+\texttt{tools/make\_contract\_coverage.py}; source
+\texttt{artifacts/contract\_coverage.csv}.}
+\label{tab:contract}
+\fitwidth{\input{tables/contract_coverage}}
+\end{table}
 
 % =====================================================================
 \section{Study design}
@@ -1008,7 +1232,8 @@ recorder reconstructed. In $\NumMaskMultisetPct\%$ of them the two are exact
 rearrangements of each other, in $\NumMaskLengthPct\%$ they have identical length,
 and the largest relative difference between their means over all
 \NumMaskChecked{} runs is $\NumMaskMaxRelMeanDiff{}$, i.e.\ at most the last bit
-of a double-precision sum. Every aggregate a reader would see is therefore identical,
+of a double-precision sum. Every order-symmetric aggregate a reader would see is
+therefore identical,
 while the vector a per-sample analysis consumes is a uniformly random
 rearrangement. Running AOT on those \NumObservedSeq{} \emph{observed}
 loader-order vectors---the real defect, not a simulation of it---gives a median
@@ -1102,31 +1327,56 @@ in the tail it does do work, and Table~\ref{tab:tail} quantifies exactly how muc
 the two measurements together are the reason we report a recommended threshold
 with a measured margin instead of a nominal guarantee.
 
-\emph{Milder corruptions.} A uniform permutation is the worst case; real defects
+\emph{Milder corruptions, and the boundary of the diagnostic.} A uniform
+permutation is the worst case; real defects
 can be gentler. Shuffling \emph{batch order} while keeping batches internally
 sequential---what a batch-level sampler produces---preserves within-block
-dependence, and permuting only a fraction of positions preserves most of it.
-Table~\ref{tab:sens} reports detection rates for both families. Block corruption
-remains detectable up to blocks of $\NumSensBlockMax{}$ samples
-($\NumSensBlockMaxRate\%$ detected), because the reordering still breaks the joins
-between blocks; and moving as few as $\NumSensPartialMin\%$ of positions is detected in
-$\NumSensPartialMinRate\%$ of sequences. At the other end, a full
-permutation is by definition undetectable as a \emph{deviation} from the null---the
-$\NumSensPartialFullRate\%$ entry is the nominal rate---which is the point of the
-certification framing: we certify the presence of order, not the absence of a
-specific corruption.
+dependence, and permuting only a fraction of positions preserves most of it. This
+is where AOT stops working, and the boundary is sharper than we expected when we
+designed the test.
+
+The direction of the statistic has to be kept straight here, because it is easy to
+read the table backwards. AOT rejects the hypothesis of complete randomisation. A
+block-permuted vector still has almost all of its serial dependence, so AOT
+rejects that hypothesis, so the vector is \emph{certified in structured order}---%
+which, on a vector we injected a fault into, means the diagnostic did not flag the
+fault. Table~\ref{tab:sens} therefore reports the flag rate, i.e.\ the fraction of
+corrupted sequences that AOT declines to certify, and the result is
+close to zero over most of the fault family. Over the \NumSensNBlockRows{}
+sequence-by-block-length cells the flag rate is $\NumSensFlagBlockMax\%$: no block
+permutation at any of the four block lengths we injected was flagged, at any
+sequence length. Partial permutations of $5\%$ and $10\%$ of positions are likewise
+flagged in $\NumSensFlagPartialMildMax\%$ of cases, and moving a quarter or a half
+of all positions still only reaches $\NumSensFlagPartialQuarter\%$ and
+$\NumSensFlagPartialHalf\%$. Only the fully random permutation is reliably flagged,
+at $\NumSensFlagPartialFull\%$.
+
+We draw the conclusion that follows rather than the one we would have preferred.
+AOT was effective against complete random permutations in our injected faults, and
+it was not observed to flag the block permutations or the mild partial permutations
+we evaluated. It should be used as a targeted diagnostic for near-random order
+corruption---which is exactly the fault the library default of
+Section~\ref{sec:fault} produces, and which is why it works on our real
+artefacts---and not as a general order-integrity test. A local or block-wise
+statistic would plausibly cover part of the gap; we have not built one, and we
+prefer to state the limitation than to gesture at a fix we did not evaluate.
 
 \begin{table}[t]
 \centering
-\caption{AOT detection of milder corruptions, over \NumSensSeq{} sequences.
-Generated from \texttt{artifacts/aot\_sensitivity.csv}.}
+\caption{Where AOT stops working. Each row is one injected corruption family;
+\emph{flagged} is the fraction of corrupted sequences that AOT declines to certify,
+i.e.\ the detection rate. Block permutations and mild partial permutations retain
+enough serial dependence that the complete-randomisation null is still rejected, so
+they are certified and the fault is not flagged. Generated from
+\texttt{artifacts/aot\_sensitivity.csv}.}
 \label{tab:sens}
 \fitwidth{\input{tables/sensitivity}}
 \end{table}
 
 \emph{Cross-arm agreement.} On the \NumCatBlocks{} groups of arms evaluated against
 a common sample set, CAT gives median $\bar{\rho} = \NumCatRhoMedianClean{}$,
-certifying $\NumCatCertCleanPct\%$ of groups; after independent per-arm permutation
+certifying $\NumCatCertCleanPct\%$ of groups; after \emph{independent} per-arm
+permutation
 the median falls to $\NumCatRhoMedianCorrupt{}$ and $\NumCatCertCorruptPct\%$ are
 certified. \NumCatMissGroups{} intact group is not certified, and it is one of the
 shortest in the study ($n \le \NumCatMissMaxN{}$ windows, against a minimum of
@@ -1135,7 +1385,96 @@ information; its $\bar{\rho}$ of $\NumCatRhoMinClean{}$ is the minimum over inta
 groups. The agreement is not driven by one dominant pair: across all \NumCatPairs{}
 individual arm pairs the median Spearman correlation is $\NumCatPairRhoMedian{}$.
 Sample difficulty dominating arm identity is a robust empirical regularity, and CAT
-converts it into a test.
+converts it into a test---under the independence assumption, which the next
+subsection examines.
+
+\subsection{Whether CAT's independence assumption holds in a real pipeline}
+\label{sec:res-observed}
+
+The CAT result just quoted is conditional on each arm having been permuted
+independently. We stated that assumption when we designed the test and justified
+it by an argument about process isolation: each arm is a separate process with its
+own loader and its own random state. That argument is wrong for our own pipeline,
+and we discovered it only by checking. Because Stage~E2 stores the visiting
+permutation alongside every defective vector, we can audit the assumption directly
+instead of simulating it.
+
+Across the \NumObsPermGroups{} real defective four-arm groups in the archive, every
+one of the \NumObsPermArms{} stored permutations is non-identity, and all
+\NumObsPermConsistentGroups{} groups satisfy the consistency check that the stored
+loader-order vector equals the index-order vector composed with the stored
+permutation---so the recorded defect is exactly the defect. The permutations are
+not, however, independent across arms. Only \NumObsPermAllDistinct{} groups have
+four pairwise distinct orders; \NumObsPermPartialShared{} groups share at least one
+order between two arms, and \NumObsPermAllIdentical{} groups use a single order for
+all four arms. Of the \NumObsPermPairs{} arm pairs, \NumObsPairsIdenticalThree{}
+groups have three identical pairs and \NumObsPairsIdenticalSix{} have all six. The
+mean rank correlation between two arms' permutations has median
+$\NumObsSpearmanMedian{}$ and ranges from $\NumObsSpearmanMin{}$ to
+$\NumObsSpearmanMax{}$. The mechanism is mundane: arms that share a data
+configuration draw their loader seed from the same derived key, so the shuffle is
+reproduced rather than redrawn.
+
+The consequence for CAT is severe. Run on the real loader-order vectors, CAT
+certifies $\NumObsCatCertGroups{}$ of \NumObsPermGroups{} groups
+($\NumObsCatCertPct\%$) as retaining cross-arm structure---that is, it declares
+clean a set of groups every one of which is corrupted. For reference, on the intact
+vectors of the same groups it certifies $\NumObsCatCertIntactGroups{}$ of
+\NumObsPermGroups{}, so the diagnostic is not merely noisy: it is answering a
+different question from the one a user would think they asked. AOT on the same
+vectors behaves much better, flagging $\NumObsAotFlagArms{}$ of
+\NumObsPermArms{} arms ($\NumObsAotFlagPct\%$) and missing at least one arm in
+\NumObsAotMissGroups{} groups, with a smallest observed $p$-value of
+$\NumObsAotPMin{}$; the shared-order structure that defeats CAT is irrelevant to
+AOT, which reads each vector on its own.
+
+Table~\ref{tab:observed} reports the audit, and Table~\ref{tab:catcond} isolates
+the mechanism under controlled sharing. Taking the same \NumCatCondGroups{} groups
+and injecting permutations ourselves, CAT flags every group when the four
+permutations are drawn independently ($\NumCatCondIndependentCert{}$ of
+\NumCatCondGroups{} certified, median
+$\bar{\rho} = \NumCatCondIndependentRho{}$) and flags none of them under any
+sharing pattern we tried: all four arms sharing one order
+(median $\bar{\rho} = \NumCatCondAllSharedRho{}$), three of four sharing
+($\NumCatCondSharedKThreeRho{}$), two of four sharing
+($\NumCatCondSharedKTwoRho{}$), or two disjoint pairs
+($\NumCatCondTwoPairsRho{}$). A single shared pair among four arms is enough. The
+residual agreement it leaves is smaller than the intact value of
+$\NumCatCondIntactRho{}$, but the Monte-Carlo null is a null of complete
+independence, so any residual agreement rejects it.
+
+We therefore restate CAT's scope. CAT is informative when independently produced
+artefacts have sufficiently distinct order perturbations. Shared or correlated
+loader orders preserve cross-arm rank structure and constitute a blind spot that,
+in the one real pipeline we were able to audit, was the common case rather than the
+exception. A user of CAT should first establish that the arms' orders were drawn
+independently---which, if the visiting permutations are recorded, is a direct
+check, and if they are not, is an assumption that cannot be verified after the
+fact. This is a further argument for the write-side contract rather than for the
+diagnostic.
+
+\begin{table}[t]
+\centering
+\caption{Audit of the independence assumption behind CAT on
+\NumObsPermGroups{} real defective four-arm groups. The stored visiting
+permutations are shared across arms far more often than not, and CAT consequently
+certifies $\NumObsCatCertPct\%$ of genuinely corrupted groups as clean. Generated
+by \texttt{tools/make\_cat\_revision.py}; source
+\texttt{artifacts/observed\_perm\_scan.csv}.}
+\label{tab:observed}
+\fitwidth{\input{tables/observed_perm}}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{CAT under controlled cross-arm order sharing, \NumCatCondGroups{} groups
+per condition. The diagnostic works only when all four permutations are drawn
+independently; a single shared pair among four arms defeats it. Generated by
+\texttt{tools/make\_cat\_revision.py}; source
+\texttt{artifacts/cat\_conditions.csv}.}
+\label{tab:catcond}
+\fitwidth{\input{tables/cat_conditions}}
+\end{table}
 
 \subsection{Where each test stops working}
 \label{sec:res-battery}
@@ -1191,10 +1530,9 @@ correlation between look-back volatility and loss is
 $\NumTaskOneRhoIndexMedian{}$ (mean $\NumTaskOneRhoIndexMean{}$), the best single
 covariate reaches $\NumTaskOneRhoBestIndexMedian{}$ in absolute value, and the top
 volatility decile is $\NumTaskOneDecileIndexMedian{}\times$ harder than the bottom
-decile. The association is significant at $\alpha = 0.05$ in
-$\NumTaskOneSigIndexPct\%$ of runs. Under the defect the same numbers become
-$\NumTaskOneRhoDefectMedian{}$, $\NumTaskOneRhoBestDefectMedian{}$,
-$\NumTaskOneDecileDefectMedian{}\times$ and $\NumTaskOneSigDefectPct\%$: the
+decile. Under the defect the same numbers become
+$\NumTaskOneRhoDefectMedian{}$, $\NumTaskOneRhoBestDefectMedian{}$ and
+$\NumTaskOneDecileDefectMedian{}\times$: the
 effect is gone, the decile contrast is exactly the ratio of two samples from the
 same distribution, and a reader would conclude that per-sample difficulty is
 unrelated to the obvious drivers of per-sample difficulty. The predictive version
@@ -1203,6 +1541,125 @@ falls from $\NumTaskOneTransferIndexMedian{}$ to
 $\NumTaskOneTransferDefectMedian{}$, and the purged within-split holdout from
 $\NumTaskOneHoldoutIndexMedian{}$ to $\NumTaskOneHoldoutDefectMedian{}$.
 Table~\ref{tab:t1} and Figure~\ref{fig:downstream} collect the comparison.
+
+\emph{How significant is that association, really?} An earlier version of this
+work reported that the intact association is significant at $\alpha = 0.05$ in
+$\NumDepIidSigPct\%$ of runs, using the standard independent-pairs approximation
+$p = 2\Phi(-|\rho|\sqrt{n-1})$. That figure is not defensible and we withdraw it.
+The windows are sliding with stride one, so consecutive per-window errors have the
+lag-1 correlation of at least $\NumRMinClean{}$ that this paper's own detector
+relies on; treating $n$ overlapping windows as $n$ independent pairs
+under-states the standard error by a large factor, and it does so in the
+anti-conservative direction. This is the same
+category of error as the one the paper is about---a statistic that reads a
+structured artefact as an exchangeable collection---so we correct it in kind rather
+than caveat it.
+
+We replace the figure with two dependence-aware readings, both on the same
+\NumDepCells{} runs (Table~\ref{tab:depaware}). Under a circular block-permutation
+null with block length $\max(L+H, \lceil n^{1/3}\rceil)$, chosen so that a block
+spans the entire window-overlap range, the association is significant in
+$\NumDepBlockSigPct\%$ of runs. Under a moving-block bootstrap with the same block
+length, the $95\%$ interval for $\rho$ excludes zero in
+$\NumDepBootCiExclPct\%$ of runs. The two agree closely, and both are roughly a
+third of the naive figure. The block-permutation null is well calibrated where we
+can check it: on the defect and control conditions, where the true association is
+zero by construction, its rejection rate is close to the nominal $5\%$.
+
+The descriptive effect itself is unchanged and remains the substantive result:
+median $\rho = \NumDepRhoMedian{}$ with interquartile range
+$[\NumDepRhoQOne{}, \NumDepRhoQThree{}]$ over the \NumDepCells{} runs. What changes
+is how much generality that median supports. The \NumDepSequences{} sequences in
+the study are not \NumDepSequences{} independent experiments: they come from
+\NumDepSampleSets{} distinct evaluation sample sets
+(\NumDepSampleSetsVal{} on the validation side) over \NumDepDatasets{} datasets, so
+the effective number of independent units is smaller by more than an order of
+magnitude. Resampling clusters rather than rows, the median $\rho$ has a $95\%$
+interval of $[\NumDepRhoSampleSetCiLow{}, \NumDepRhoSampleSetCiHigh{}]$ with
+sample sets as clusters and $[\NumDepRhoDatasetCiLow{},
+\NumDepRhoDatasetCiHigh{}]$ with datasets as clusters. The association is
+positive under every reading, but its magnitude is not pinned down to better than a
+factor of two across datasets, and we make no claim that it would hold at this
+strength on data outside this grid.
+
+The one conclusion that does \emph{not} weaken under cluster resampling is the
+central one. The paired difference between the defect and the control has median
+$\NumDepDefectMinusControlMedian{}$, with a cluster interval of
+$[\NumDepDefectMinusControlSampleSetCiLow{},
+\NumDepDefectMinusControlSampleSetCiHigh{}]$ over sample sets and
+$[\NumDepDefectMinusControlDatasetCiLow{},
+\NumDepDefectMinusControlDatasetCiHigh{}]$ over datasets. Both contain zero and
+both are two orders of magnitude narrower than the effect they would have to
+contain to distinguish the two conditions. Control degeneration survives the
+conservative reading, which is what Proposition~\ref{prop:degeneracy} predicts:
+it is a distributional identity, not an empirical regularity that could have been
+an artefact of the grid.
+
+\begin{table}[t]
+\centering
+\caption{The intact difficulty association under three inference schemes, over
+\NumDepCells{} runs. The independent-pairs approximation, which an earlier version
+of this work used, over-states significance roughly threefold relative to
+dependence-aware alternatives; cluster resampling over
+\NumDepSampleSetsVal{} sample sets or \NumDepDatasets{} datasets widens every
+interval substantially. Generated by
+\texttt{tools/make\_downstream\_revision.py}; sources
+\texttt{artifacts/t1\_difficulty\_depaware.csv} and
+\texttt{artifacts/t1\_cluster\_summary.csv}.}
+\label{tab:depaware}
+\fitwidth{\input{tables/depaware}}
+\end{table}
+
+\emph{The purged holdout was not purged enough.} The predictive arm of T1 fits a
+difficulty model inside the validation split and evaluates it on a held-out tail of
+the same split, with a purge between the two so that overlapping windows cannot
+leak. An earlier version of this work used a fixed purge of
+\NumPurgeLegacyOrigins{} window origins for every configuration. That is a constant
+where the quantity it has to dominate is not: a single window covers $L+H$ time
+steps, and at $L = \NumPurgeBucketSeqLen{}$, $H = \NumPurgeBucketPredLen{}$ that is
+$816$. With a purge of \NumPurgeLegacyOrigins{} the origins on either side of the
+boundary differ by \NumPurgeLegacyGap{}, so the last training window and the first
+evaluation window still share \NumPurgeLegacySharedTime{} time steps, of which
+\NumPurgeLegacySharedTarget{} are shared \emph{prediction targets}. The holdout was
+therefore partly in-sample at long horizons, and \NumPurgeLegacyLeakCells{} cells
+in the grid leak this way.
+
+We replace the constant with two rules derived from the window geometry, and we
+report the realised boundary rather than the intended one
+(Table~\ref{tab:purge}). Under the \texttt{labels} rule, origins must differ by at
+least $H$, so no training label is available later than the first evaluation
+decision; at $L = \NumPurgeBucketSeqLen{}$, $H = \NumPurgeBucketPredLen{}$ this
+means a purge of \NumPurgeLabelsOrigins{} origins, a realised gap of
+\NumPurgeLabelsGap{}, and \NumPurgeLabelsSharedTarget{} shared target points---the
+\NumPurgeLabelsSharedTime{} time steps that still overlap lie entirely inside the
+evaluation window's look-back, which is a legitimate covariate. Under the stricter
+\texttt{disjoint} rule, origins must differ by at least $L+H$, giving a purge of
+\NumPurgeDisjointOrigins{} and \NumPurgeDisjointSharedTime{} shared time steps of
+any kind. Both rules are verified by interval arithmetic on the actual window
+extents rather than by a constant, and the verifier asserts the realised boundary
+for every cell.
+
+The cost of doing this correctly is that some configurations no longer support the
+analysis at all. Requiring at least \NumDepMinHoldoutWindows{} windows on each side
+of the purge, \NumPurgeLabelsEligible{} of \NumPurgeCells{} cells remain eligible
+under either rule and \NumPurgeLabelsIneligible{} do not; the excluded cells are the
+short-series configurations, all four ILI horizons and the three longest Exchange
+horizons, where the validation split holds only a few dozen to a few hundred
+windows. We exclude them and say so, rather than shrinking the purge until the
+arithmetic fits.
+
+\begin{table}[t]
+\centering
+\caption{Purge audit at $L = \NumPurgeBucketSeqLen{}$,
+$H = \NumPurgeBucketPredLen{}$, where a window covers $816$ time steps. The fixed
+purge used in an earlier version of this work leaves
+\NumPurgeLegacySharedTarget{} shared prediction targets across the holdout
+boundary. Boundaries are verified from window extents, not assumed. Generated by
+\texttt{tools/make\_downstream\_revision.py}; source
+\texttt{artifacts/t1\_purge\_audit.csv}.}
+\label{tab:purge}
+\fitwidth{\input{tables/purge_audit}}
+\end{table}
 
 \begin{table}[t]
 \centering
@@ -1399,17 +1856,29 @@ The findings compress into a short protocol. We state it as three roles because
 the checks that are cheap differ by role.
 
 \paragraph{For authors}
-(1) Never write a per-sample artefact without recording the order it is in; the
-sidecar of Section~\ref{sec:contract} is the minimum. (2) Load per-sample arrays
-through a reader that requires an order, so a positional join cannot be written by
-accident. (3) If a per-sample artefact must come from a shuffling loader, record
+(1) Never write a per-sample artefact without binding it to the identity of the
+samples it describes; the sidecar of Section~\ref{sec:contract}---ordered
+sample-identifier digest, value digest, sample-set identity---is the minimum, and
+an order \emph{label} alone is not sufficient. (2) Load per-sample arrays
+through a reader that validates that record and fails closed, so a positional join
+cannot be written by
+accident; better still, join by sample identifier. (3) If a per-sample artefact
+must come from a shuffling loader, record
 the sample index alongside the value instead of disabling the shuffle---disabling
-it changes the experiment (Section~\ref{sec:res-tax}). (4) Run AOT on every stored
-per-sample vector and CAT on every group of arms as part of the test suite, at a
-conservative level. (5) When reporting a per-sample \emph{null}, state explicitly
+it changes the experiment (Section~\ref{sec:res-tax}). (4) Where the preconditions
+hold, run AOT on stored per-sample vectors as part of the test suite, at a
+conservative level, and read a pass as evidence against near-uniform scrambling
+only. Run CAT only if you can establish that the arms' orders were produced
+independently; if the visiting permutations are not recorded, that cannot be
+established after the fact (Section~\ref{sec:res-observed}). (5) When reporting a
+per-sample \emph{null}, state explicitly
 which order check was performed; a shuffled-feature control is not one
 (Corollary~\ref{cor:cannot}), and if the analysis selects among several arms the
 control is optimistic rather than conservative (Proposition~\ref{prop:derived}).
+(6) If the per-sample units overlap---sliding windows, nested segments, repeated
+measures---do not report significance from an independent-pairs formula; the error
+runs in the anti-conservative direction and can be large
+(Section~\ref{sec:res-downstream}).
 
 \paragraph{For reviewers}
 When a paper reports a per-sample analysis---difficulty prediction, per-instance
@@ -1419,16 +1888,23 @@ convincing (a shape check, a shuffled-feature control, a sensible aggregate) are
 all provably uninformative here. Asking for the order check is cheap for an honest
 author and diagnostic otherwise. A reported null about per-sample structure
 deserves this question more than a reported effect does, because the fault only
-produces nulls.
+produces nulls. The useful follow-up is not ``did you run a test'' but ``what does
+your artefact record about which sample each number belongs to'', because a passing
+diagnostic covers a narrower class of faults than its name suggests.
 
 \paragraph{For artefact evaluators}
 Badging schemes check that artefacts run and reproduce the reported numbers
 \citep{acmbadging,pineau2021,gundersen2018}. Both checks pass under this fault, by
 Proposition~\ref{prop:invariance}. A per-sample artefact can be checked further
 without the original authors and without a GPU: AOT reads the published vector,
-takes $O(n)$ time, and has a calibrated false-alarm rate. We suggest that
-artefacts containing per-sample vectors carry order metadata as a condition of the
-reusable badge, and note that the check is mechanisable.
+takes $O(n)$ time, and has an empirically calibrated false-alarm rate at the
+lengths we studied. We suggest that
+artefacts containing per-sample vectors carry sample-identity metadata as a
+condition of the
+reusable badge, and note that the check is mechanisable. We suggest metadata rather
+than a statistical test as the badge condition deliberately: the metadata check is
+complete for the faults it covers, whereas the test is not
+(Table~\ref{tab:sens}).
 
 % =====================================================================
 \section{Threats to validity and limitations}
@@ -1436,14 +1912,25 @@ reusable badge, and note that the check is mechanisable.
 \label{sec:limits}
 
 \paragraph{Construct}
-Our detectors certify the presence of the structure that order induces; they do not
+Our diagnostics certify the presence of the structure that order induces; they do
+not
 certify alignment. AOT is invariant to circular rotation and nearly invariant to
-reversal, and CAT is invariant to a permutation shared by all arms. An off-by-one
-write, a reversed sort or a globally shared shuffle therefore pass. We consider
+reversal, and---as Section~\ref{sec:res-detect} measures rather than
+conjectures---it did not flag any of the block permutations or the $5\%$ and $10\%$
+partial permutations we injected. CAT is invariant to a permutation shared by all
+arms, and is defeated by \emph{partial} sharing as well: a single shared pair among
+four arms was sufficient in every group we tested. An off-by-one
+write, a reversed sort, a batch-level shuffle or a reused loader seed therefore
+pass. We consider
 this a limitation of post-hoc auditing in general, not of these statistics in
 particular: content-based inference of order can only see structure that the
-transformation destroys. The write-side contract is not subject to this limit,
-which is why we present it as primary.
+transformation destroys. But we no longer describe the pair as covering the fault
+class, and the honest summary of our detector evaluation is that the covered region
+is narrow and that the real pipeline we audited sat mostly outside CAT's part of it.
+The write-side contract is not subject to this limit,
+which is why we present it as primary---subject in turn to the
+\NumContractUndetected{} faults of Table~\ref{tab:contract} that it does not cover,
+of which the important one is two producers sharing a single wrong order.
 
 \paragraph{Internal}
 The observed defect is measured on our own pipeline, in which we deliberately
@@ -1522,9 +2009,10 @@ Recording how a derived artefact came about is the subject of a mature literatur
 \citep{ditommaso2017,koster2012} and experiment trackers
 \citep{zaharia2018mlflow}, and is codified for scientific data by the FAIR
 principles \citep{wilkinson2016}. Our contract is a deliberately minimal
-specialisation: for the single property that positional joins depend on, a closed
-vocabulary of orders and a reader that fails closed. We see it as an instance of
-the general prescription that the ML tooling stack currently omits.
+specialisation: for the single property that positional joins depend on, a digest
+over the ordered sample identifiers, a closed vocabulary of order semantics, and a
+reader that fails closed. We see it as an instance of the general prescription that
+the ML tooling stack currently omits, not as a substitute for a workflow engine.
 
 \paragraph{Testing without an oracle}
 Metamorphic testing \citep{segura2016,chen2018metamorphic} verifies programs by
@@ -1562,8 +2050,9 @@ the companion study \citep{companion2026} addresses the selection question.
 
 Per-sample analysis rests on an assumption that is almost never written down: that
 two artefacts produced by different parts of a pipeline are in the same order. We
-have shown that when the assumption fails, the failure is invisible to every guard
-the pipeline applies---the aggregate metric is invariant, the length check is blind
+have shown that when the assumption fails, the failure survives the guards a
+pipeline conventionally applies---the sample-weighted aggregate metric is invariant,
+the length check is blind
 by construction, and, most importantly, the negative control that is supposed to
 protect the analysis is \emph{equal in distribution} to the fault it is meant to
 detect. A null result about per-sample structure, presented with a well-behaved
@@ -1573,25 +2062,48 @@ class of analyses where the control does behave differently---those whose label 
 derived from several independently written vectors---is the class where it is most
 misleading, because there it reports a milder failure than the fault produces.
 
-The situation is repairable, cheaply, in two steps. Write-side: attach an order
-record to every per-sample artefact and refuse to load one for a positional join
-without it. Read-side, for artefacts that already exist: run the two tests we
-give. On \NumRuns{} runs the battery certifies $\NumCleanCertPct\%$ of intact
-sequences and $\NumCorruptCertPct\%$ of permuted ones at $\alpha = 0.05$, separates
-the two populations perfectly at $\alpha = 10^{-6}$, and detects corruptions far
-milder than a full permutation. We also found that the obvious one-line repair
+The situation is repairable, but not by the route we first proposed. Write-side is
+where the leverage is: bind every per-sample artefact to the ordered identity of the
+samples it describes---not merely to a label naming its order---and refuse to load
+one for a positional join without verifying that binding. On
+\NumContractFaults{} injected identity faults the contract we specify stops
+\NumContractDetected{}, including the rotations, permutations, stale sidecars and
+equal-length substitutions that no content-based test can see, and we enumerate the
+\NumContractUndetected{} it does not stop.
+
+Read-side, for artefacts that already exist, the two diagnostics are worth running
+but cover less than their names suggest, and reporting that boundary is the more
+useful of our two empirical contributions. On \NumRuns{} runs AOT certifies
+$\NumCleanCertPct\%$ of intact
+sequences and $\NumCorruptCertPct\%$ of uniformly permuted ones at $\alpha = 0.05$
+and separates the two populations perfectly at $\alpha = 10^{-6}$; it flags
+$\NumObsAotFlagPct\%$ of arms on the real defect. But it flagged
+$\NumSensFlagBlockMax\%$ of the injected block permutations and
+$\NumSensFlagPartialMildMax\%$ of the mild partial permutations, so it is a
+diagnostic for near-random scrambling and not an integrity test. CAT is
+sharper still in its dependence on an assumption we had not checked: it requires
+each arm's order to have been drawn independently, and in our own archive
+\NumObsPermPartialShared{} of \NumObsPermGroups{} defective groups share an order
+between arms, whereupon CAT certifies $\NumObsCatCertPct\%$ of genuinely corrupted
+groups as clean. A single shared pair among four arms defeats it. We also found
+that the obvious one-line repair
 silently changes reported numbers by up to $\NumTaxMaxAbs\%$, so a maintainer must
 re-run rather than patch---or adopt the recorder, which fixes the artefact and
 leaves the run alone.
 
-Two directions follow. The first is mechanical and, we think, worth doing: run the
-battery over the per-sample artefacts that accompany published papers and measure
-how often the fault is present in the wild. The second is conceptual. Our
-degeneracy result is an instance of a pattern---a control that destroys the same
-structure as the fault cannot see the fault---and we expect other instances to
-exist wherever a validation device and a failure mode act through the same
-mechanism. Cataloguing them would tell us which of the checks we currently trust
-are load-bearing.
+Three directions follow. The first is mechanical and, we think, worth doing: run
+the diagnostics over the per-sample artefacts that accompany published papers and
+measure how often the fault is present in the wild, remembering that a
+non-certification is evidence of near-random scrambling rather than of order
+integrity in general. The second is to close the diagnostic gap we have documented:
+AOT's insensitivity to block and mild partial permutations, and CAT's dependence on
+independent arm orders, are both invitations to design statistics that target
+locality-preserving corruption and correlated loader state. The third is
+conceptual. Our degeneracy result is an instance of a pattern---a control that
+destroys the same structure as the fault cannot see the fault---and we expect other
+instances to exist wherever a validation device and a failure mode act through the
+same mechanism. Cataloguing them would tell us which of the checks we currently
+trust are load-bearing.
 
 % =====================================================================
 \printcredits
@@ -1618,9 +2130,22 @@ This study and the companion manuscript \citep{companion2026} share an
 experimental infrastructure and a research programme but address disjoint
 questions and report disjoint results: the companion asks whether per-window
 plug-in selection is learnable under legal feedback delay, and this paper asks
-whether a per-sample artefact is in the order its consumer assumes. Neither
-manuscript's claims depend on the other's; the overlap is disclosed here so that
-editors and reviewers can assess it directly.
+whether a per-sample artefact is in the order its consumer assumes. To let
+editors and reviewers assess the overlap directly we state it explicitly.
+\emph{Shared:} the forecasting grid and the trained checkpoints that produced the
+per-window error vectors, the dataset preparation code, and the two bug fixes
+reported in Section~\ref{sec:res-observed} (the loader-order defect and the corrected
+cross-arm variance term), which are reported identically in both manuscripts.
+\emph{Exclusive to this paper:} the degeneracy proposition and its controls, the
+AOT and CAT diagnostics with their calibration, sensitivity and blind-spot
+analyses, the observed-permutation audit of the archive, the provenance contract
+and its fault-injection coverage, the dependence-aware re-analysis of per-window
+difficulty correlations, and the repair-cost measurement.
+\emph{Exclusive to the companion:} everything concerning selector training,
+feedback delay, oracle headroom and gating policy. No contribution is claimed in
+both manuscripts, and neither manuscript's conclusions depend on the other being
+accepted. The two releases are versioned and archived independently, and the
+numbers quoted across them are produced by the same verification scripts.
 
 \section*{Vitae}
 \noindent\textbf{Mianhan Liu} works on empirical evaluation methodology for
@@ -1640,11 +2165,18 @@ every number, table and figure in this manuscript is released at
 \url{https://github.com/oscarliu2019/order-provenance-audit}: the experiment
 configuration; the per-run table for all \NumRuns{} runs; the per-sample audit
 outputs (AOT sequence statistics, calibration, sensitivity, certification sweep,
-cross-arm agreement, the battery); the per-sample feature tables; the T1 and T2
-outputs and the equivalence tests; the paired repair-cost table; the reference
-implementation of the order contract and of both tests; the test suite covering the
+cross-arm agreement, the battery); the recovered permutations of the
+\NumObsPermGroups{} defective groups and the controlled sharing conditions used to
+probe CAT's independence assumption; the per-sample feature tables; the T1 and T2
+outputs, the dependence-aware and cluster-bootstrap re-analyses and the purge
+audit; the equivalence tests; the paired repair-cost table; the reference
+implementation of the provenance contract, its \NumContractFaults{} fault-injection
+cases and both diagnostics; the test suite covering the
 propositions as executable statements; and the generators for
-\texttt{paper/numbers.tex}, all tables and all figures. A verification script,
+\texttt{paper/numbers.tex}, all tables and all figures. Per-window error vectors
+are released as arrays together with their sidecars, so that every derived
+per-sample conclusion can be recomputed rather than merely inspected. A
+verification script,
 \texttt{tools/verify\_paper\_numbers.py}, re-derives every quantitative claim in
 this manuscript from those artefacts and fails on any mismatch, printing the claim
 identifier, the printed value and the recomputed value.

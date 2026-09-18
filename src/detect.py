@@ -152,8 +152,10 @@ def cat(
         perm = np.stack([rng.permutation(row) for row in ranks])
         stat[b] = mean_pairwise_spearman(perm)
     p = float((1.0 + np.sum(stat >= obs)) / (n_perm + 1.0))
-    # analytic reference: Spearman under independence has variance 1/(n-1)
-    z = obs * np.sqrt(n - 1)
+    # rho_bar averages M = K(K-1)/2 pairwise Spearmans, uncorrelated under the null: Var = 1/(M*(n-1))
+    m_pairs = float(k * (k - 1) // 2)
+    z = obs * np.sqrt(m_pairs * (n - 1)) if m_pairs > 0 else float("nan")
+    z_naive = obs * np.sqrt(n - 1)
     return {
         "n_arms": float(k),
         "n": float(n),
@@ -161,6 +163,8 @@ def cat(
         "p": p,
         "z_analytic": float(z),
         "p_analytic": float(stats.norm.sf(z)),
+        "z_analytic_naive": float(z_naive),
+        "p_analytic_naive": float(stats.norm.sf(z_naive)),
         "null_mean": float(stat.mean()),
         "null_sd": float(stat.std(ddof=1)),
     }

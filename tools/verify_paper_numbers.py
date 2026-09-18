@@ -33,7 +33,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import REPO_ROOT, GridConfig  # noqa: E402
 from src.detect import aot  # noqa: E402
-from src.winerr import load_series  # noqa: E402
+from src.winerr import load_series as _load_series  # noqa: E402
+
+
+def load_series(win_dir, name, require_order="index", **kw):
+    """Legacy-tolerant read: the archived cells predate the provenance contract."""
+    return _load_series(win_dir, name, require_order, legacy_ok=True, **kw)
 
 A = 0.05
 PAPER = REPO_ROOT / "paper"
@@ -69,6 +74,215 @@ def tost_ci(diff: np.ndarray) -> tuple[float, float]:
     se = d.std(ddof=1) / np.sqrt(n)
     t = stats.t.isf(0.025, n - 1)
     return float(d.mean() - t * se), float(d.mean() + t * se)
+
+
+def one(values) -> float:
+    """The single value a column takes on a homogeneous subset, or an error."""
+    u = np.unique(np.asarray(values, dtype=float))
+    u = u[np.isfinite(u)]
+    if u.size != 1:
+        raise ValueError(f"expected one distinct value, found {u.tolist()}")
+    return float(u[0])
+
+
+def collected_tests() -> tuple[int, int]:
+    """Count node ids in a collect-only run, rather than trusting its summary line."""
+    import subprocess
+
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    ).stdout
+    ids = [ln for ln in out.splitlines() if re.match(r"^tests/\S+\.py::", ln)]
+    adv = [i for i in ids if i.startswith("tests/test_provenance.py::")]
+    return len(ids), len(adv)
+
+
+def revision_checks(cfg: GridConfig) -> dict[str, object]:
+    """Re-derivation of the macros added by the major revision."""
+    art = cfg.path("artifacts_dir")
+    R = lambda n: pd.read_csv(art / n)  # noqa: E731
+
+    sens = R("aot_sensitivity.csv")
+    tail = R("aot_tail.csv")
+    obs = R("observed_perm_scan.csv")
+    cc = R("cat_conditions.csv")
+    ca = R("cat_analytic_check.csv")
+    dep = R("t1_difficulty_depaware.csv")
+    clus = R("t1_cluster_summary.csv")
+    pur = R("t1_purge_audit.csv")
+    cov = R("contract_coverage.csv")
+    mig = R("backfill_provenance_migration_report.csv")
+    summ = json.loads((art / "t1_depaware_summary.json").read_text())
+
+    # flagged = the fraction NOT rejecting "uniformly permuted", i.e. faults seen
+    def flagged(kind: str, param: float) -> float:
+        g = sens.loc[(sens.kind == kind) & np.isclose(sens.param, param), "reject"]
+        return pct(g == 0)
+
+    blk_params = sorted(sens.loc[sens.kind == "block", "param"].unique())
+    par_params = sorted(sens.loc[sens.kind == "partial", "param"].unique())
+    ntest, nadv = collected_tests()
+    di = dep.loc[dep.condition == "index"]
+    ind = ca.loc[ca.condition == "independent"]
+    arms = int(obs.n_arms_aot.sum())
+    nflag = arms - int(obs.n_arms_aot_rejects.sum())
+    bucket = pur.loc[(pur.seq_len == 96) & (pur.pred_len == 720)
+                     & (pur.labels_holdout_eligible == 1)]
+
+    def cl(cdef: str, stat: str, col: str, scale: float = 1.0) -> float:
+        row = clus.loc[(clus.cluster_def == cdef) & (clus.statistic == stat), col]
+        return scale * float(row.iloc[0])
+
+    C: dict[str, object] = {
+        # ---- A1: AOT sensitivity, flagged direction ---- #
+        "NumSensNBlockRows": int((sens.kind == "block").sum()),
+        "NumSensNPartialRows": int((sens.kind == "partial").sum()),
+        "NumSensFlagBlockMax": max(flagged("block", p) for p in blk_params),
+        "NumSensFlagPartialMildMax": max(
+            flagged("partial", p) for p in par_params if p <= 0.10
+        ),
+        "NumSensFlagPartialQuarter": flagged("partial", 0.25),
+        "NumSensFlagPartialHalf": flagged("partial", 0.50),
+        "NumSensFlagPartialFull": flagged("partial", 1.00),
+        # ---- A2: AOT on the observed loader permutations ---- #
+        "NumObsPermGroups": int(obs.shape[0]),
+        "NumObsPermArms": arms,
+        "NumObsAotMissArms": int(obs.n_arms_aot_rejects.sum()),
+        "NumObsAotFlagArms": nflag,
+        "NumObsAotFlagPct": 100.0 * nflag / arms,
+        "NumObsAotMissGroups": int((obs.n_arms_aot_rejects >= 1).sum()),
+        "NumObsAotPMin": float(obs.aot_p_min.min()),
+        # ---- A3: tail calibration of the normal reference ---- #
+        "NumTailRatioSix": float(tail.loc[np.isclose(tail.alpha, 1e-6), "ratio_to_nominal"].max()),
+        "NumTailRatioMedianTwo": med(tail.loc[np.isclose(tail.alpha, 1e-2), "ratio_to_nominal"]),
+        "NumTailRatioMedianThree": med(tail.loc[np.isclose(tail.alpha, 1e-3), "ratio_to_nominal"]),
+        "NumTailRatioMedianFour": med(tail.loc[np.isclose(tail.alpha, 1e-4), "ratio_to_nominal"]),
+        "NumTailRatioMedianFive": med(tail.loc[np.isclose(tail.alpha, 1e-5), "ratio_to_nominal"]),
+        "NumTailRatioMedianSix": med(tail.loc[np.isclose(tail.alpha, 1e-6), "ratio_to_nominal"]),
+        "NumTailRatioAboveOneRows": int((tail.ratio_to_nominal > 1.0).sum()),
+        "NumTailRatioAboveOnePct": pct(tail.ratio_to_nominal > 1.0),
+        # ---- A4: sharing structure of the observed permutations ---- #
+        "NumObsPermPartialShared": int((obs.perm_sharing == "partial_shared").sum()),
+        "NumObsPermAllIdentical": int((obs.perm_sharing == "all_identical").sum()),
+        "NumObsPermAllDistinct": int((obs.perm_sharing == "all_distinct").sum()),
+        "NumObsPermPairs": int(obs.n_pairs.sum()),
+        "NumObsPairsIdenticalNone": int((obs.n_pairs_identical == 0).sum()),
+        "NumObsPairsIdenticalOne": int((obs.n_pairs_identical == 1).sum()),
+        "NumObsPairsIdenticalTwo": int((obs.n_pairs_identical == 2).sum()),
+        "NumObsPairsIdenticalThree": int((obs.n_pairs_identical == 3).sum()),
+        "NumObsPairsIdenticalSix": int((obs.n_pairs_identical == 6).sum()),
+        "NumObsSpearmanMedian": med(obs.spearman_perm_mean),
+        "NumObsSpearmanMin": float(obs.spearman_perm_mean.min()),
+        "NumObsSpearmanMax": float(obs.spearman_perm_mean.max()),
+        "NumObsPermNonIdentityArms": int(obs.n_arms_misordered.sum()),
+        "NumObsPermConsistentGroups": int((obs.perm_consistent == 1).sum()),
+        "NumObsCatCertGroups": int((obs.cat_certified == 1).sum()),
+        "NumObsCatCertPct": pct(obs.cat_certified == 1),
+        "NumObsCatRhoMedian": med(obs.cat_rho_bar),
+        "NumObsCatCertIntactGroups": int((obs.cat_certified_intact == 1).sum()),
+        "NumObsCatCertIntactPct": pct(obs.cat_certified_intact == 1),
+        "NumObsCatRhoIntactMedian": med(obs.cat_rho_bar_intact),
+        # ---- A5: CAT under controlled sharing ---- #
+        "NumCatCondRows": int(cc.shape[0]),
+        "NumCatCondGroups": int(cc.groupby("condition").size().min()),
+        # ---- A6: corrected analytic null on independent permutations ---- #
+        "NumCatAnalyticRows": int((ca.condition == "independent").sum()),
+        "NumCatAnalyticPairs": int(one(ind.m_pairs)),
+        "NumCatAnalyticErrMax": float(ind.abs_err_corrected.max()),
+        "NumCatAnalyticErrMedian": med(ind.abs_err_corrected),
+        "NumCatAnalyticNaiveErrMax": float(ind.abs_err_naive.max()),
+        "NumCatAnalyticNaiveErrMedian": med(ind.abs_err_naive),
+        "NumCatSdRatioCorrectedMedian": med(ind.sd_ratio_corrected),
+        "NumCatSdRatioNaiveMedian": med(ind.sd_ratio_naive),
+        "NumCatSdRatioNaiveTheory": float(6.0 ** -0.5),
+        # ---- A7: dependence-aware association ---- #
+        "NumDepCells": int(di.cell_id.nunique()),
+        "NumDepRhoMedian": med(di.assoc_rho_fstd),
+        "NumDepRhoQOne": float(np.percentile(di.assoc_rho_fstd, 25)),
+        "NumDepRhoQThree": float(np.percentile(di.assoc_rho_fstd, 75)),
+        "NumDepRhoIqr": float(
+            np.percentile(di.assoc_rho_fstd, 75) - np.percentile(di.assoc_rho_fstd, 25)
+        ),
+        "NumDepRhoMin": float(di.assoc_rho_fstd.min()),
+        "NumDepRhoMax": float(di.assoc_rho_fstd.max()),
+        "NumDepBlockSigPct": pct(di.assoc_p_block < A),
+        "NumDepBootCiExclPct": pct(di.assoc_rho_ci_excludes_zero == 1),
+        "NumDepIidSigPct": pct(di.assoc_p_iid_naive < A),
+        "NumDepSequences": int(summ["n_sequences_val_plus_test"]),
+        "NumDepSampleSets": int(summ["n_distinct_sample_sets"]),
+        "NumDepSampleSetsVal": int(summ["n_distinct_sample_sets_val"]),
+        "NumDepDatasets": int(dep.dataset.nunique()),
+        "NumDepBlockLenMedian": int(med(di.block_len)),
+        "NumDepBlockLenCappedCells": int((di.block_len_capped == 1).sum()),
+        "NumDepNPerm": int(one(di.n_perm)),
+        "NumDepNBoot": int(one(di.n_boot)),
+        "NumDepMinHoldoutWindows": int(summ["min_holdout_windows"]),
+        # ---- A8: cluster bootstrap ---- #
+        "NumDepClusterBoot": int(one(clus.n_boot)),
+        "NumDepClusterSampleSets": int(
+            one(clus.loc[clus.cluster_def == "sample_set", "n_clusters"])
+        ),
+        "NumDepClusterDatasets": int(one(clus.loc[clus.cluster_def == "dataset", "n_clusters"])),
+        "NumDepDefectMinusControlMedian": cl("sample_set", "defect_minus_control_median", "point"),
+        # ---- A9: purge audit ---- #
+        "NumPurgeCells": int(pur.shape[0]),
+        "NumPurgeLabelsEligible": int((pur.labels_holdout_eligible == 1).sum()),
+        "NumPurgeLabelsIneligible": int((pur.labels_holdout_eligible != 1).sum()),
+        "NumPurgeDisjointEligible": int((pur.disjoint_holdout_eligible == 1).sum()),
+        "NumPurgeDisjointIneligible": int((pur.disjoint_holdout_eligible != 1).sum()),
+        "NumPurgeBucketSeqLen": int(one(bucket.seq_len)),
+        "NumPurgeBucketPredLen": int(one(bucket.pred_len)),
+        "NumPurgeBucketCells": int(bucket.shape[0]),
+        "NumPurgeLegacyOrigins": int(one(bucket.legacy_purge_origins)),
+        "NumPurgeLegacyGap": int(one(bucket.legacy_min_origin_gap_actual)),
+        "NumPurgeLegacySharedTime": int(one(bucket.legacy_shared_timepoints_at_boundary)),
+        "NumPurgeLegacySharedTarget": int(one(bucket.legacy_shared_target_points_at_boundary)),
+        "NumPurgeLegacyLeakCells": int(
+            (pur.legacy_shared_target_points_at_boundary > 0).sum()
+        ),
+        # ---- A10: contract coverage ---- #
+        "NumContractFaults": int(cov.shape[0]),
+        "NumContractDetected": int((cov.detected == 1).sum()),
+        "NumContractUndetected": int((cov.detected_by_field == "(none)").sum()),
+        "NumContractAdversarialTests": nadv,
+        "NumContractRepoTests": ntest,
+        "NumBackfillDirs": int((mig.status == "ok").sum()),
+        "NumBackfillSidecars": int(mig.n_sidecars_planned.sum()),
+        "NumBackfillFailures": int((~mig.status.isin(["ok", "skipped"])).sum()),
+    }
+
+    for cond, tag in (("intact", "Intact"), ("independent", "Independent"),
+                      ("all_shared", "AllShared"), ("shared_k3", "SharedKThree"),
+                      ("shared_k2", "SharedKTwo"), ("two_pairs", "TwoPairs")):
+        g = cc.loc[cc.condition == cond]
+        C[f"NumCatCond{tag}Cert"] = int((g.certified == 1).sum())
+        C[f"NumCatCond{tag}Rho"] = med(g.rho_bar)
+
+    for cdef, ctag in (("sample_set", "SampleSet"), ("dataset", "Dataset")):
+        for stat, tag, scale in (
+            ("index_median_rho", "DepRho", 1.0),
+            ("defect_minus_control_median", "DepDefectMinusControl", 1.0),
+            ("index_frac_p_iid_lt_05", "DepIidSig", 100.0),
+            ("index_frac_p_block_lt_05", "DepBlockSig", 100.0),
+            ("index_frac_ci_excludes_zero", "DepBootCiExcl", 100.0),
+        ):
+            C[f"Num{tag}{ctag}CiLow"] = cl(cdef, stat, "ci_lo", scale)
+            C[f"Num{tag}{ctag}CiHigh"] = cl(cdef, stat, "ci_hi", scale)
+
+    for mode, tag in (("labels", "Labels"), ("disjoint", "Disjoint")):
+        C[f"NumPurge{tag}Origins"] = int(one(bucket[f"{mode}_purge_origins"]))
+        C[f"NumPurge{tag}RequiredGap"] = int(one(bucket[f"{mode}_required_origin_gap"]))
+        C[f"NumPurge{tag}Gap"] = int(one(bucket[f"{mode}_min_origin_gap_actual"]))
+        C[f"NumPurge{tag}SharedTime"] = int(
+            one(bucket[f"{mode}_shared_timepoints_at_boundary"])
+        )
+        C[f"NumPurge{tag}SharedTarget"] = int(
+            one(bucket[f"{mode}_shared_target_points_at_boundary"])
+        )
+    return C
 
 
 def build_checks(cfg: GridConfig) -> dict[str, object]:
@@ -343,6 +557,7 @@ def build_checks(cfg: GridConfig) -> dict[str, object]:
         lo, hi = tost_ci(arr)
         xc[tag] = (lo, hi, float(arr.mean()))
     C["_xcheck"] = xc
+    C.update(revision_checks(cfg))
     return C
 
 
@@ -420,7 +635,9 @@ def main(argv=None) -> int:
 
     for rel in ("tables/grid.tex", "tables/certification.tex", "tables/sensitivity.tex",
                 "tables/battery.tex", "tables/downstream_t1.tex", "tables/downstream_t2.tex",
-                "tables/rng_tax.tex", "figs/sequence.pdf", "figs/separation.pdf",
+                "tables/rng_tax.tex", "tables/observed_perm.tex", "tables/cat_conditions.tex",
+                "tables/cat_analytic.tex", "tables/depaware.tex", "tables/purge_audit.tex",
+                "tables/contract_coverage.tex", "figs/sequence.pdf", "figs/separation.pdf",
                 "figs/battery.pdf", "figs/downstream.pdf", "figs/rngtax.pdf"):
         if not (PAPER / rel).exists():
             problems.append(f"missing generated asset: paper/{rel}")
@@ -430,6 +647,9 @@ def main(argv=None) -> int:
         f"\n{n_ok}/{len(checks)} claims re-derived from artefacts; "
         f"{len(used)} macros used in main.tex; {len(unused)} defined but unused."
     )
+    # an unused macro is a warning, not an error: a claim may be written up later
+    if unused:
+        print(f"WARNING: {len(unused)} macro(s) defined and verified but not yet cited in main.tex")
     if unused and a.verbose:
         print("  unused:", ", ".join(unused))
     if problems:

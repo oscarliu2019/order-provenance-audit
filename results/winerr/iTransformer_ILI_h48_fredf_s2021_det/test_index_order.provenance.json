@@ -1,7 +1,27 @@
 {
+  "backbone": "iTransformer",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "iTransformer_ILI_h48_fredf_s2021_det",
+  "dataset": "ILI",
+  "n_samples": 146,
   "n_windows": 146,
   "order": "index",
+  "order_semantics": "dataset_index",
+  "ordered_sample_id_digest": "sha256:9a944701118db35a4151de8f8e73ba99316beff3c7ac68e3f17ba825f632f343",
+  "plugin": "fredf",
+  "pred_len": 48,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "identity_range",
+    "start": 0
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 36,
   "split": "test",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:327c3078bdfb830da6926f58810f2e49a337cd9ee60c09cc5d59d1df95ecb7ff"
 }

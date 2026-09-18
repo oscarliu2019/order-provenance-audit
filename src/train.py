@@ -277,18 +277,30 @@ def run_cell(cfg: GridConfig, cell: Cell, run: RunOptions) -> dict[str, Any]:
         rec_val = best_arrays["val_loader"]
         perm = best_arrays["val_perm"]
         val_index = unpermute(rec_val, perm)
+        ident = dict(dataset=cell.dataset, backbone=cell.backbone, plugin=cell.plugin,
+                     seq_len=int(configs.seq_len), pred_len=int(cell.pred_len), seed=int(cell.seed))
+        # the loader-order products carry the observed window origins, not positions
+        loader_ids = dict(window_origins=perm.astype(np.int64),
+                          sample_id_spec={"kind": "sibling_array", "name": "val_perm"})
         # What a defective pipeline would have persisted: the loader-order vector
         # with no record of the permutation.
         save_series(win_dir, "val_loader_order", rec_val, ORDER_LOADER,
-                    cell_id=cell.cell_id, val_order=cell.val_order, split="val")
+                    cell_id=cell.cell_id, val_order=cell.val_order, split="val",
+                    **ident, **loader_ids)
         # Ground truth, recoverable only because the indices were captured.
         save_series(win_dir, "val_index_order", val_index, ORDER_INDEX,
-                    cell_id=cell.cell_id, val_order=cell.val_order, split="val")
+                    cell_id=cell.cell_id, val_order=cell.val_order, split="val",
+                    **ident, window_origins=np.arange(val_index.size, dtype=np.int64),
+                    sample_id_spec={"kind": "identity_range", "start": 0})
         save_series(win_dir, "val_perm", perm.astype(np.float64), ORDER_LOADER,
                     cell_id=cell.cell_id, val_order=cell.val_order, split="val",
-                    note="dataset index of the window at each loader position")
+                    note="dataset index of the window at each loader position",
+                    **ident, **loader_ids)
         save_series(win_dir, "test_index_order", best_arrays["test_index"], ORDER_INDEX,
-                    cell_id=cell.cell_id, val_order=cell.val_order, split="test")
+                    cell_id=cell.cell_id, val_order=cell.val_order, split="test",
+                    **ident,
+                    window_origins=np.arange(best_arrays["test_index"].size, dtype=np.int64),
+                    sample_id_spec={"kind": "identity_range", "start": 0})
         written = {"winerr_dir": str(win_dir)}
     result = {
         **cell.to_dict(),

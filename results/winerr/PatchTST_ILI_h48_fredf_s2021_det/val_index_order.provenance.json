@@ -1,7 +1,27 @@
 {
+  "backbone": "PatchTST",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "PatchTST_ILI_h48_fredf_s2021_det",
+  "dataset": "ILI",
+  "n_samples": 50,
   "n_windows": 50,
   "order": "index",
+  "order_semantics": "dataset_index",
+  "ordered_sample_id_digest": "sha256:b72fbf4263d7b5d395967df24699678ab1005a50b0398c5c3de65110a2989806",
+  "plugin": "fredf",
+  "pred_len": 48,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "identity_range",
+    "start": 0
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 36,
   "split": "val",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:edc1fce695c61bd7d3375d602d7f3cb255b5fd7ebd5c38f0ac59b6216e42050b"
 }

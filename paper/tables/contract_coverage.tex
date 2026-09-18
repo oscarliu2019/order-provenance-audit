@@ -1,0 +1,39 @@
+\footnotesize
+\begin{tabular}{@{}p{0.44\linewidth}p{0.26\linewidth}p{0.20\linewidth}@{}}
+\toprule
+injected fault & clause that fires & outcome \\
+\midrule
+\texttt{single\_\allowbreak{}element\_\allowbreak{}edited} & \texttt{value\_\allowbreak{}digest} & \texttt{DigestMismatchError} \\
+\texttt{float\_\allowbreak{}perturbation\_\allowbreak{}1e-12} & \texttt{value\_\allowbreak{}digest} & \texttt{DigestMismatchError} \\
+\texttt{cyclic\_\allowbreak{}rotation\_\allowbreak{}of\_\allowbreak{}the\_\allowbreak{}whole\_\allowbreak{}array} & \texttt{value\_\allowbreak{}digest} & \texttt{DigestMismatchError} \\
+\texttt{random\_\allowbreak{}permutation\_\allowbreak{}of\_\allowbreak{}the\_\allowbreak{}array} & \texttt{value\_\allowbreak{}digest} & \texttt{DigestMismatchError} \\
+\texttt{array\_\allowbreak{}truncated\_\allowbreak{}by\_\allowbreak{}one\_\allowbreak{}sample} & \texttt{n\_\allowbreak{}samples} & \texttt{IdentityMismatchError} \\
+\texttt{stale\_\allowbreak{}sidecar\_\allowbreak{}array\_\allowbreak{}rerun\_\allowbreak{}in\_\allowbreak{}place} & \texttt{value\_\allowbreak{}digest} & \texttt{DigestMismatchError} \\
+\texttt{array\_\allowbreak{}replaced\_\allowbreak{}by\_\allowbreak{}another\_\allowbreak{}cell\_\allowbreak{}same\_\allowbreak{}length} & \texttt{value\_\allowbreak{}digest} & \texttt{DigestMismatchError} \\
+\texttt{val\_\allowbreak{}product\_\allowbreak{}consumed\_\allowbreak{}as\_\allowbreak{}test} & \texttt{split} & \texttt{IdentityMismatchError} \\
+\texttt{same\_\allowbreak{}length\_\allowbreak{}different\_\allowbreak{}horizon\_\allowbreak{}joined} & \texttt{ordered\_\allowbreak{}sample\_\allowbreak{}id\_\allowbreak{}digest} & \texttt{IdentityMismatchError} \\
+\texttt{same\_\allowbreak{}length\_\allowbreak{}different\_\allowbreak{}dataset\_\allowbreak{}joined} & \texttt{ordered\_\allowbreak{}sample\_\allowbreak{}id\_\allowbreak{}digest} & \texttt{IdentityMismatchError} \\
+\texttt{loader\_\allowbreak{}order\_\allowbreak{}relabelled\_\allowbreak{}as\_\allowbreak{}index\_\allowbreak{}order} & \texttt{order\_\allowbreak{}semantics+\allowbreak{}ordered\_\allowbreak{}sample\_\allowbreak{}id\_\allowbreak{}digest} & \texttt{IdentityMismatchError} \\
+\texttt{sample\_\allowbreak{}id\_\allowbreak{}source\_\allowbreak{}replaced\_\allowbreak{}val\_\allowbreak{}perm} & \texttt{ordered\_\allowbreak{}sample\_\allowbreak{}id\_\allowbreak{}digest} & \texttt{IdentityMismatchError} \\
+\texttt{positional\_\allowbreak{}join\_\allowbreak{}across\_\allowbreak{}different\_\allowbreak{}sample\_\allowbreak{}sets} & \texttt{ordered\_\allowbreak{}sample\_\allowbreak{}id\_\allowbreak{}digest} & \texttt{IdentityMismatchError} \\
+\texttt{join\_\allowbreak{}of\_\allowbreak{}a\_\allowbreak{}product\_\allowbreak{}with\_\allowbreak{}no\_\allowbreak{}sample\_\allowbreak{}ids} & \texttt{sample\_\allowbreak{}id\_\allowbreak{}spec} & \texttt{MissingFieldError} \\
+\texttt{legacy\_\allowbreak{}sidecar\_\allowbreak{}without\_\allowbreak{}schema\_\allowbreak{}version} & \texttt{schema\_\allowbreak{}version} & \texttt{SchemaVersionError} \\
+\texttt{unknown\_\allowbreak{}future\_\allowbreak{}schema\_\allowbreak{}version} & \texttt{schema\_\allowbreak{}version} & \texttt{SchemaVersionError} \\
+\texttt{required\_\allowbreak{}field\_\allowbreak{}removed\_\allowbreak{}from\_\allowbreak{}sidecar} & \texttt{ordered\_\allowbreak{}sample\_\allowbreak{}id\_\allowbreak{}digest} & \texttt{MissingFieldError} \\
+\texttt{order\_\allowbreak{}semantics\_\allowbreak{}outside\_\allowbreak{}the\_\allowbreak{}enumeration} & \texttt{order\_\allowbreak{}semantics} & \texttt{OrderSemanticsError} \\
+\texttt{sidecar\_\allowbreak{}file\_\allowbreak{}deleted} & \texttt{schema\_\allowbreak{}version} & \texttt{MissingFieldError} \\
+\texttt{duplicate\_\allowbreak{}sample\_\allowbreak{}ids\_\allowbreak{}in\_\allowbreak{}one\_\allowbreak{}product} & \texttt{ordered\_\allowbreak{}sample\_\allowbreak{}id\_\allowbreak{}digest} & \texttt{IdentityMismatchError} \\
+\midrule
+\multicolumn{3}{@{}l@{}}{\emph{faults the contract accepts without error (blind spots)}} \\
+\texttt{two\_\allowbreak{}producers\_\allowbreak{}share\_\allowbreak{}one\_\allowbreak{}wrong\_\allowbreak{}loader\_\allowbreak{}order} & (none) & \texttt{accepted} \\
+\multicolumn{3}{@{}p{0.92\linewidth}@{}}{\hspace{1em}\emph{each product is self-consistent and both declare the same ordered ids, so the contract sees a legitimate loader-order join; only the AOT/CAT detectors or the raw dataset indices can reveal that the order is semantically wrong}} \\
+\texttt{no\_\allowbreak{}sidecar\_\allowbreak{}but\_\allowbreak{}consumer\_\allowbreak{}passes\_\allowbreak{}require\_\allowbreak{}order\_\allowbreak{}None} & (none) & \texttt{accepted} \\
+\multicolumn{3}{@{}p{0.92\linewidth}@{}}{\hspace{1em}\emph{kept for order-invariant consumers of pre-contract arrays; warns loudly but does not raise, so it is an explicit opt-out hole rather than a checked path}} \\
+\texttt{positional\_\allowbreak{}join\_\allowbreak{}truncated\_\allowbreak{}to\_\allowbreak{}n\_\allowbreak{}min} & (none) & \texttt{accepted} \\
+\multicolumn{3}{@{}p{0.92\linewidth}@{}}{\hspace{1em}\emph{when products have different lengths the ordered digests are not comparable, so only dataset/split/seq\_len/pred\_len are verified and a prefix misalignment survives}} \\
+\texttt{upstream\_\allowbreak{}data\_\allowbreak{}or\_\allowbreak{}preprocessing\_\allowbreak{}changed} & (none) & \texttt{accepted} \\
+\multicolumn{3}{@{}p{0.92\linewidth}@{}}{\hspace{1em}\emph{sample ids are (dataset, split, seq\_len, pred\_len, window\_origin) and carry no hash of the raw series, so a re-derived product from changed input data validates and joins cleanly with features computed from the other version}} \\
+\texttt{per\_\allowbreak{}sample\_\allowbreak{}value\_\allowbreak{}computed\_\allowbreak{}wrongly\_\allowbreak{}but\_\allowbreak{}consistently} & (none) & \texttt{accepted} \\
+\multicolumn{3}{@{}p{0.92\linewidth}@{}}{\hspace{1em}\emph{the contract certifies who each number belongs to, never that the number is the right statistic; a wrong reduction with a fresh digest is indistinguishable}} \\
+\bottomrule
+\end{tabular}

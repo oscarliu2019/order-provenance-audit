@@ -1,0 +1,13 @@
+\small
+\begin{tabular}{lllrrrr}
+\toprule
+condition & sharing pattern & arm labels & distinct perms. & certified & median $\bar{\rho}$ & median $p$ (MC) \\
+\midrule
+\texttt{intact} & intact (no permutation injected) & --- & 0 & 24 / 24 & 0.9509 & 0.0005 \\
+\texttt{independent} & independent permutation per arm & \texttt{0\textbar{}1\textbar{}2\textbar{}3} & 4 & 0 / 24 & $-0.0023$ & 0.6207 \\
+\texttt{all\_shared} & one permutation shared by all four arms & \texttt{0\textbar{}0\textbar{}0\textbar{}0} & 1 & 24 / 24 & 0.9509 & 0.0005 \\
+\texttt{shared\_k3} & three arms share, one independent & \texttt{0\textbar{}0\textbar{}0\textbar{}1} & 2 & 24 / 24 & 0.4827 & 0.0005 \\
+\texttt{shared\_k2} & two arms share, two independent & \texttt{0\textbar{}0\textbar{}1\textbar{}2} & 3 & 24 / 24 & 0.1579 & 0.0005 \\
+\texttt{two\_pairs} & two disjoint pairs, each sharing & \texttt{0\textbar{}0\textbar{}1\textbar{}1} & 2 & 24 / 24 & 0.3199 & 0.0005 \\
+\bottomrule
+\end{tabular}

@@ -1,7 +1,27 @@
 {
+  "backbone": "DLinear",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "DLinear_Weather_h96_fredf_s2021_det",
+  "dataset": "Weather",
+  "n_samples": 5175,
   "n_windows": 5175,
   "order": "index",
+  "order_semantics": "dataset_index",
+  "ordered_sample_id_digest": "sha256:81b0a34488077a1b42a9fb827d8824204a820292f60ae5f3da2d67d7c3a380c5",
+  "plugin": "fredf",
+  "pred_len": 96,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "identity_range",
+    "start": 0
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 96,
   "split": "val",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:2b9da6012a4b875066de191a51a70f244ec6ee5fff1f179b50bc6728c3e5fd60"
 }

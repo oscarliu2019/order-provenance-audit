@@ -1,0 +1,26 @@
+fault,detected_by_field,detected,exception,note
+single_element_edited,value_digest,1,DigestMismatchError,"one entry rewritten; length, order label and sample ids all still agree"
+float_perturbation_1e-12,value_digest,1,DigestMismatchError,"sha256 over normalised float64 bytes is bit-exact, so sub-tolerance edits are caught"
+cyclic_rotation_of_the_whole_array,value_digest,1,DigestMismatchError,"n, mean, sum and multiset are all invariant under rotation; the byte digest is not"
+random_permutation_of_the_array,value_digest,1,DigestMismatchError,"the multiset is unchanged, so aggregate MSE and length checks stay silent"
+array_truncated_by_one_sample,n_samples,1,IdentityMismatchError,length clause fires before the digest clause
+stale_sidecar_array_rerun_in_place,value_digest,1,DigestMismatchError,"sidecar describes the previous epoch's array; same shape, same identity"
+array_replaced_by_another_cell_same_length,value_digest,1,DigestMismatchError,equal-length vector from a different dataset dropped in place of the right one
+val_product_consumed_as_test,split,1,IdentityMismatchError,consumer states expect={'split': 'test'}; the sidecar says val
+same_length_different_horizon_joined,ordered_sample_id_digest,1,IdentityMismatchError,H=192 and H=336 products of one dataset can coincide in length; the sample ids cannot
+same_length_different_dataset_joined,ordered_sample_id_digest,1,IdentityMismatchError,"ETTh1 and ETTh2 have identical split geometry, so only the id namespace separates them"
+loader_order_relabelled_as_index_order,order_semantics+ordered_sample_id_digest,1,IdentityMismatchError,dataset_index order is only accepted when position i really is window origin i
+sample_id_source_replaced_val_perm,ordered_sample_id_digest,1,IdentityMismatchError,"loader-order ids are resolved from val_perm.npy, so a stale perm breaks the digest"
+positional_join_across_different_sample_sets,ordered_sample_id_digest,1,IdentityMismatchError,the guard that a performance-motivated positional read must pass first
+join_of_a_product_with_no_sample_ids,sample_id_spec,1,MissingFieldError,join_by_sample_id refuses to fall back to positional alignment
+legacy_sidecar_without_schema_version,schema_version,1,SchemaVersionError,the 356 archived directories looked like this; legacy_ok=True downgrades to a warning
+unknown_future_schema_version,schema_version,1,SchemaVersionError,an unrecognised version is refused even with legacy_ok=True
+required_field_removed_from_sidecar,ordered_sample_id_digest,1,MissingFieldError,every field of the contract is checked for presence before use
+order_semantics_outside_the_enumeration,order_semantics,1,OrderSemanticsError,free-text order labels are how the original defect hid
+sidecar_file_deleted,schema_version,1,MissingFieldError,a missing sidecar is refused for any positional consumer
+duplicate_sample_ids_in_one_product,ordered_sample_id_digest,1,IdentityMismatchError,build_sidecar refuses a non-injective sample id list
+two_producers_share_one_wrong_loader_order,(none),0,accepted,"each product is self-consistent and both declare the same ordered ids, so the contract sees a legitimate loader-order join; only the AOT/CAT detectors or the raw dataset indices can reveal that the order is semantically wrong"
+no_sidecar_but_consumer_passes_require_order_None,(none),0,accepted,"kept for order-invariant consumers of pre-contract arrays; warns loudly but does not raise, so it is an explicit opt-out hole rather than a checked path"
+positional_join_truncated_to_n_min,(none),0,accepted,"when products have different lengths the ordered digests are not comparable, so only dataset/split/seq_len/pred_len are verified and a prefix misalignment survives"
+upstream_data_or_preprocessing_changed,(none),0,accepted,"sample ids are (dataset, split, seq_len, pred_len, window_origin) and carry no hash of the raw series, so a re-derived product from changed input data validates and joins cleanly with features computed from the other version"
+per_sample_value_computed_wrongly_but_consistently,(none),0,accepted,"the contract certifies who each number belongs to, never that the number is the right statistic; a wrong reduction with a fresh digest is indistinguishable"

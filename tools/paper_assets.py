@@ -28,9 +28,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import GridConfig  # noqa: E402
 from src.detect import aot  # noqa: E402
-from src.winerr import load_series  # noqa: E402
+from src.winerr import load_series as _load_series  # noqa: E402
+
+
+def load_series(win_dir, name, require_order="index", **kw):
+    """Legacy-tolerant read: the archived cells predate the provenance contract."""
+    return _load_series(win_dir, name, require_order, legacy_ok=True, **kw)
 
 ALPHA = 0.05
+
+# the six controlled sharing conditions of artifacts/cat_conditions.csv
+CAT_CONDITIONS = [
+    ("intact", "Intact", "intact (no permutation injected)"),
+    ("independent", "Independent", "independent permutation per arm"),
+    ("all_shared", "AllShared", "one permutation shared by all four arms"),
+    ("shared_k3", "SharedKThree", "three arms share, one independent"),
+    ("shared_k2", "SharedKTwo", "two arms share, two independent"),
+    ("two_pairs", "TwoPairs", "two disjoint pairs, each sharing"),
+]
+
+# statistics of artifacts/t1_cluster_summary.csv exported as cluster intervals
+CLUSTER_STATS = [
+    ("index_median_rho", "DepRho", 1.0, 4),
+    ("defect_minus_control_median", "DepDefectMinusControl", 1.0, 6),
+    ("index_frac_p_iid_lt_05", "DepIidSig", 100.0, 2),
+    ("index_frac_p_block_lt_05", "DepBlockSig", 100.0, 2),
+    ("index_frac_ci_excludes_zero", "DepBootCiExcl", 100.0, 2),
+]
 
 
 def art(cfg: GridConfig) -> Path:
@@ -307,6 +331,208 @@ def collect_numbers(cfg: GridConfig) -> dict[str, object]:
         f"{stats.wilcoxon(tax['mse_shuffled'], tax['mse_deterministic']).pvalue:.3g}"
     )
     n["NumTaxIdenticalPct"] = round(float(100 * (tax["abs_rel_diff_pct"] < 1e-9).mean()), 1)
+    n.update(revision_numbers(cfg, sens, tail))
+    return n
+
+
+def _pytest_counts() -> dict[str, int]:
+    """Collect-only run of the suite: total tests and the adversarial contract file."""
+    import re
+    import subprocess
+
+    from src.config import REPO_ROOT
+
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    ).stdout
+    m = re.search(r"(\d+) tests? collected", out)
+    if m is None:
+        raise RuntimeError("could not read the pytest collection summary")
+    adv = sum(1 for ln in out.splitlines() if ln.startswith("tests/test_provenance.py::"))
+    return {"total": int(m.group(1)), "adversarial": adv}
+
+
+def rnd(x: float, k: int) -> float:
+    """Half-up rounding, so a .5 boundary reads the way a reader rounds it."""
+    from decimal import ROUND_HALF_UP, Decimal
+
+    return float(Decimal(repr(float(x))).quantize(Decimal(1).scaleb(-k), rounding=ROUND_HALF_UP))
+
+
+def revision_numbers(cfg: GridConfig, sens: pd.DataFrame, tail: pd.DataFrame) -> dict[str, object]:
+    """Macros added by the revision: A1-A10 of the revision plan."""
+    n: dict[str, object] = {}
+    obs = _read(cfg, "observed_perm_scan.csv")
+    cc = _read(cfg, "cat_conditions.csv")
+    ca = _read(cfg, "cat_analytic_check.csv")
+    dep = _read(cfg, "t1_difficulty_depaware.csv")
+    clus = _read(cfg, "t1_cluster_summary.csv")
+    pur = _read(cfg, "t1_purge_audit.csv")
+    cov = _read(cfg, "contract_coverage.csv")
+    mig = _read(cfg, "backfill_provenance_migration_report.csv")
+    summ = json.loads((art(cfg) / "t1_depaware_summary.json").read_text())
+
+    # ---- A1: sensitivity, in the flagged direction ---- #
+    # reject=1 rejects "uniformly permuted", i.e. the sequence still looks ordered
+    per = 100.0 * (1.0 - sens.groupby(["kind", "param"])["reject"].mean())
+    blk_rate = per.loc["block"]
+    par_rate = per.loc["partial"]
+    n["NumSensNBlockRows"] = int((sens["kind"] == "block").sum())
+    n["NumSensNPartialRows"] = int((sens["kind"] == "partial").sum())
+    n["NumSensFlagBlockMax"] = round(float(blk_rate.max()), 2)
+    n["NumSensFlagPartialMildMax"] = round(float(par_rate[par_rate.index <= 0.10].max()), 2)
+    par = sens[sens["kind"] == "partial"]
+    for p, tag in ((0.25, "Quarter"), (0.50, "Half"), (1.00, "Full")):
+        g = par[np.isclose(par["param"], p)]
+        n[f"NumSensFlagPartial{tag}"] = round(float(100 * (1 - g["reject"].mean())), 2)
+
+    # ---- A2: AOT on the real loader permutations ---- #
+    n["NumObsPermGroups"] = int(len(obs))
+    n["NumObsPermArms"] = int(obs["n_arms_aot"].sum())
+    n["NumObsAotMissArms"] = int(obs["n_arms_aot_rejects"].sum())
+    n["NumObsAotFlagArms"] = int(n["NumObsPermArms"] - n["NumObsAotMissArms"])
+    n["NumObsAotFlagPct"] = rnd(100.0 * n["NumObsAotFlagArms"] / n["NumObsPermArms"], 2)
+    n["NumObsAotMissGroups"] = int((obs["n_arms_aot_rejects"] > 0).sum())
+    n["NumObsAotPMin"] = float(f"{obs['aot_p_min'].min():.3g}")
+
+    # ---- A3: honest tail calibration of the normal reference ---- #
+    n["NumTailRatioSix"] = round(
+        float(tail.loc[np.isclose(tail["alpha"], 1e-6), "ratio_to_nominal"].max()), 2
+    )
+    for a, tag in ((1e-2, "Two"), (1e-3, "Three"), (1e-4, "Four"), (1e-5, "Five"), (1e-6, "Six")):
+        g = tail[np.isclose(tail["alpha"], a)]
+        n[f"NumTailRatioMedian{tag}"] = round(float(g["ratio_to_nominal"].median()), 4)
+    n["NumTailRatioAboveOneRows"] = int((tail["ratio_to_nominal"] > 1.0).sum())
+    n["NumTailRatioAboveOnePct"] = round(float(100 * (tail["ratio_to_nominal"] > 1.0).mean()), 1)
+
+    # ---- A4: the sharing structure of the observed permutations ---- #
+    share = obs["perm_sharing"].value_counts()
+    for key, tag in (
+        ("partial_shared", "PartialShared"),
+        ("all_identical", "AllIdentical"),
+        ("all_distinct", "AllDistinct"),
+    ):
+        n[f"NumObsPerm{tag}"] = int(share.get(key, 0))
+    n["NumObsPermPairs"] = int(obs["n_pairs"].sum())
+    ident = obs["n_pairs_identical"].value_counts()
+    for k, tag in ((0, "None"), (1, "One"), (2, "Two"), (3, "Three"), (6, "Six")):
+        n[f"NumObsPairsIdentical{tag}"] = int(ident.get(k, 0))
+    n["NumObsSpearmanMedian"] = round(float(obs["spearman_perm_mean"].median()), 4)
+    n["NumObsSpearmanMin"] = round(float(obs["spearman_perm_mean"].min()), 4)
+    n["NumObsSpearmanMax"] = round(float(obs["spearman_perm_mean"].max()), 4)
+    n["NumObsPermNonIdentityArms"] = int(obs["n_arms_misordered"].sum())
+    n["NumObsPermConsistentGroups"] = int(obs["perm_consistent"].sum())
+    n["NumObsCatCertGroups"] = int(obs["cat_certified"].sum())
+    n["NumObsCatCertPct"] = round(float(100 * obs["cat_certified"].mean()), 2)
+    n["NumObsCatRhoMedian"] = round(float(obs["cat_rho_bar"].median()), 4)
+    n["NumObsCatCertIntactGroups"] = int(obs["cat_certified_intact"].sum())
+    n["NumObsCatCertIntactPct"] = round(float(100 * obs["cat_certified_intact"].mean()), 2)
+    n["NumObsCatRhoIntactMedian"] = round(float(obs["cat_rho_bar_intact"].median()), 4)
+
+    # ---- A5: CAT under six controlled sharing conditions ---- #
+    n["NumCatCondRows"] = int(len(cc))
+    n["NumCatCondGroups"] = int(cc.groupby("condition").size().max())
+    for cond, tag, _label in CAT_CONDITIONS:
+        g = cc[cc["condition"] == cond]
+        n[f"NumCatCond{tag}Cert"] = int(g["certified"].sum())
+        n[f"NumCatCond{tag}Rho"] = round(float(g["rho_bar"].median()), 4)
+
+    # ---- A6: the corrected analytic null, on independent permutations only ---- #
+    ind = ca[ca["condition"] == "independent"]
+    n["NumCatAnalyticRows"] = int(len(ind))
+    n["NumCatAnalyticPairs"] = int(ind["m_pairs"].iloc[0])
+    n["NumCatAnalyticErrMax"] = round(float(ind["abs_err_corrected"].max()), 4)
+    n["NumCatAnalyticErrMedian"] = round(float(ind["abs_err_corrected"].median()), 4)
+    n["NumCatAnalyticNaiveErrMax"] = round(float(ind["abs_err_naive"].max()), 4)
+    n["NumCatAnalyticNaiveErrMedian"] = round(float(ind["abs_err_naive"].median()), 4)
+    n["NumCatSdRatioCorrectedMedian"] = round(float(ind["sd_ratio_corrected"].median()), 4)
+    n["NumCatSdRatioNaiveMedian"] = round(float(ind["sd_ratio_naive"].median()), 4)
+    n["NumCatSdRatioNaiveTheory"] = round(float(1.0 / np.sqrt(n["NumCatAnalyticPairs"])), 4)
+
+    # ---- A7: dependence-aware downstream association ---- #
+    di = dep[dep["condition"] == "index"]
+    n["NumDepCells"] = int(di["cell_id"].nunique())
+    n["NumDepRhoMedian"] = round(float(di["assoc_rho_fstd"].median()), 4)
+    n["NumDepRhoQOne"] = round(float(di["assoc_rho_fstd"].quantile(0.25)), 4)
+    n["NumDepRhoQThree"] = round(float(di["assoc_rho_fstd"].quantile(0.75)), 4)
+    n["NumDepRhoIqr"] = round(
+        float(di["assoc_rho_fstd"].quantile(0.75) - di["assoc_rho_fstd"].quantile(0.25)), 4
+    )
+    n["NumDepRhoMin"] = round(float(di["assoc_rho_fstd"].min()), 4)
+    n["NumDepRhoMax"] = round(float(di["assoc_rho_fstd"].max()), 4)
+    n["NumDepBlockSigPct"] = round(float(100 * (di["assoc_p_block"] < ALPHA).mean()), 2)
+    n["NumDepBootCiExclPct"] = round(float(100 * di["assoc_rho_ci_excludes_zero"].mean()), 2)
+    n["NumDepIidSigPct"] = round(float(100 * (di["assoc_p_iid_naive"] < ALPHA).mean()), 2)
+    n["NumDepSequences"] = int(summ["n_sequences_val_plus_test"])
+    n["NumDepSampleSets"] = int(summ["n_distinct_sample_sets"])
+    n["NumDepSampleSetsVal"] = int(summ["n_distinct_sample_sets_val"])
+    n["NumDepDatasets"] = int(summ["n_datasets"])
+    n["NumDepBlockLenMedian"] = int(di["block_len"].median())
+    n["NumDepBlockLenCappedCells"] = int(di["block_len_capped"].sum())
+    n["NumDepNPerm"] = int(di["n_perm"].iloc[0])
+    n["NumDepNBoot"] = int(di["n_boot"].iloc[0])
+    n["NumDepMinHoldoutWindows"] = int(summ["min_holdout_windows"])
+
+    # ---- A8: cluster bootstrap over sample sets and datasets ---- #
+    cl = clus.set_index(["cluster_def", "statistic"])
+    n["NumDepClusterBoot"] = int(clus["n_boot"].iloc[0])
+    n["NumDepClusterSampleSets"] = int(
+        clus.loc[clus["cluster_def"] == "sample_set", "n_clusters"].iloc[0]
+    )
+    n["NumDepClusterDatasets"] = int(
+        clus.loc[clus["cluster_def"] == "dataset", "n_clusters"].iloc[0]
+    )
+    for cdef, ctag in (("sample_set", "SampleSet"), ("dataset", "Dataset")):
+        for stat, tag, scale, dec in CLUSTER_STATS:
+            r = cl.loc[(cdef, stat)]
+            n[f"Num{tag}{ctag}CiLow"] = round(float(scale * r["ci_lo"]), dec)
+            n[f"Num{tag}{ctag}CiHigh"] = round(float(scale * r["ci_hi"]), dec)
+    n["NumDepDefectMinusControlMedian"] = round(
+        float(cl.loc[("sample_set", "defect_minus_control_median"), "point"]), 6
+    )
+
+    # ---- A9: purge audit at the boundary of the held-out half ---- #
+    n["NumPurgeCells"] = int(len(pur))
+    for mode, tag in (("labels", "Labels"), ("disjoint", "Disjoint")):
+        n[f"NumPurge{tag}Eligible"] = int(pur[f"{mode}_holdout_eligible"].sum())
+        n[f"NumPurge{tag}Ineligible"] = int(len(pur) - pur[f"{mode}_holdout_eligible"].sum())
+    n["NumPurgeBucketSeqLen"] = 96
+    n["NumPurgeBucketPredLen"] = 720
+    b = pur[
+        (pur["seq_len"] == n["NumPurgeBucketSeqLen"])
+        & (pur["pred_len"] == n["NumPurgeBucketPredLen"])
+        & (pur["labels_holdout_eligible"] == 1)
+    ]
+    n["NumPurgeBucketCells"] = int(len(b))
+    for mode, tag in (("labels", "Labels"), ("disjoint", "Disjoint")):
+        n[f"NumPurge{tag}Origins"] = int(b[f"{mode}_purge_origins"].median())
+        n[f"NumPurge{tag}RequiredGap"] = int(b[f"{mode}_required_origin_gap"].median())
+        n[f"NumPurge{tag}Gap"] = int(b[f"{mode}_min_origin_gap_actual"].median())
+        n[f"NumPurge{tag}SharedTime"] = int(b[f"{mode}_shared_timepoints_at_boundary"].median())
+        n[f"NumPurge{tag}SharedTarget"] = int(
+            b[f"{mode}_shared_target_points_at_boundary"].median()
+        )
+    n["NumPurgeLegacyOrigins"] = int(b["legacy_purge_origins"].median())
+    n["NumPurgeLegacyGap"] = int(b["legacy_min_origin_gap_actual"].median())
+    n["NumPurgeLegacySharedTime"] = int(b["legacy_shared_timepoints_at_boundary"].median())
+    n["NumPurgeLegacySharedTarget"] = int(b["legacy_shared_target_points_at_boundary"].median())
+    n["NumPurgeLegacyLeakCells"] = int(
+        (pur["legacy_shared_target_points_at_boundary"] > 0).sum()
+    )
+
+    # ---- A10: what the provenance contract does and does not catch ---- #
+    n["NumContractFaults"] = int(len(cov))
+    n["NumContractDetected"] = int((cov["detected"] == 1).sum())
+    n["NumContractUndetected"] = int((cov["detected"] == 0).sum())
+    tests = _pytest_counts()
+    n["NumContractAdversarialTests"] = int(tests["adversarial"])
+    n["NumContractRepoTests"] = int(tests["total"])
+    n["NumBackfillDirs"] = int((mig["status"] == "ok").sum())
+    n["NumBackfillSidecars"] = int(mig["n_sidecars_planned"].sum())
+    n["NumBackfillFailures"] = int((~mig["status"].isin(["ok", "skipped"])).sum())
     return n
 
 
@@ -373,6 +599,235 @@ def _tabular(header: list[str], rows: list[list[str]], align: str) -> str:
     return "\n".join(out)
 
 
+def _tex(s: object) -> str:
+    """Escape an artefact string so it can be typeset verbatim in a table cell."""
+    t = str(s)
+    for a, b in (("\\", r"\textbackslash{}"), ("_", r"\_"), ("{", r"\{"), ("}", r"\}"),
+                 ("&", r"\&"), ("%", r"\%"), ("#", r"\#"), ("$", r"\$"), ("|", r"\textbar{}"),
+                 ("~", r"\textasciitilde{}"), ("^", r"\textasciicircum{}")):
+        t = t.replace(a, b)
+    return t
+
+
+def _mono(s: object, allow_break: bool = False) -> str:
+    t = _tex(s)
+    if allow_break:
+        t = t.replace(r"\_", r"\_\allowbreak{}").replace("+", r"+\allowbreak{}")
+    return r"\texttt{" + t + "}"
+
+
+def _ci(lo: float, hi: float, dec: int) -> str:
+    return f"$[{lo:.{dec}f},\\,{hi:.{dec}f}]$"
+
+
+def _num(v: float, dec: int) -> str:
+    """Negative cells need math mode so the minus sign is a minus, not a hyphen."""
+    return f"${v:.{dec}f}$" if v < 0 else f"{v:.{dec}f}"
+
+
+def revision_tables(cfg: GridConfig, out: Path) -> int:
+    """The six tables added by the revision; captions stay in main.tex."""
+    obs = _read(cfg, "observed_perm_scan.csv")
+    cc = _read(cfg, "cat_conditions.csv")
+    ca = _read(cfg, "cat_analytic_check.csv")
+    dep = _read(cfg, "t1_difficulty_depaware.csv")
+    clus = _read(cfg, "t1_cluster_summary.csv").set_index(["cluster_def", "statistic"])
+    pur = _read(cfg, "t1_purge_audit.csv")
+    cov = _read(cfg, "contract_coverage.csv")
+
+    # ---- observed loader permutations, and what the detectors do with them ---- #
+    arms = int(obs["n_arms_aot"].sum())
+    miss = int(obs["n_arms_aot_rejects"].sum())
+    share = obs["perm_sharing"].value_counts()
+    ident = obs["n_pairs_identical"].value_counts().sort_index()
+    ng = len(obs)
+    rows = [
+        ["groups of arms over a common sample set", f"{ng}"],
+        ["arms (group $\\times$ plugin)", f"{arms}"],
+        ["arms whose validation order is not the identity",
+         f"{int(obs['n_arms_misordered'].sum())}"],
+        [f"groups with {_mono('val_loader_order == val_index_order[val_perm]')}",
+         f"{int(obs['perm_consistent'].sum())}"],
+        [r"sharing: one permutation for all arms (\texttt{all\_identical})",
+         f"{int(share.get('all_identical', 0))}"],
+        [r"sharing: some arms share (\texttt{partial\_shared})",
+         f"{int(share.get('partial_shared', 0))}"],
+        [r"sharing: every arm distinct (\texttt{all\_distinct})",
+         f"{int(share.get('all_distinct', 0))}"],
+        ["identical arm pairs per group: "
+         + ", ".join(f"{int(k)}" for k in ident.index) + " pairs",
+         " / ".join(f"{int(v)}" for v in ident.to_numpy())],
+        ["mean Spearman between arm permutations, median (min, max)",
+         f"{obs['spearman_perm_mean'].median():.4f} "
+         f"({obs['spearman_perm_mean'].min():.4f}, {obs['spearman_perm_mean'].max():.4f})"],
+        ["CAT certifies the observed loader order",
+         f"{int(obs['cat_certified'].sum())} / {ng} "
+         f"({100 * obs['cat_certified'].mean():.2f}\\%)"],
+        [r"CAT median $\bar{\rho}$, observed loader order", f"{obs['cat_rho_bar'].median():.4f}"],
+        ["CAT certifies the intact index order",
+         f"{int(obs['cat_certified_intact'].sum())} / {ng} "
+         f"({100 * obs['cat_certified_intact'].mean():.2f}\\%)"],
+        [r"CAT median $\bar{\rho}$, intact index order",
+         f"{obs['cat_rho_bar_intact'].median():.4f}"],
+        ["AOT flags the observed loader order",
+         f"{arms - miss} / {arms} ({rnd(100 * (arms - miss) / arms, 2):.2f}\\%)"],
+        ["arms AOT fails to flag", f"{miss}"],
+        ["groups with at least one unflagged arm",
+         f"{int((obs['n_arms_aot_rejects'] > 0).sum())} / {ng}"],
+        ["smallest AOT $p$ over all arms", f"{obs['aot_p_min'].min():.3g}"],
+    ]
+    (out / "observed_perm.tex").write_text(
+        "\\small\n" + _tabular(["quantity", "value"], rows, "lr")
+    )
+
+    # ---- CAT under six controlled sharing conditions ---- #
+    rows = []
+    for cond, _tag, label in CAT_CONDITIONS:
+        g = cc[cc["condition"] == cond]
+        lab = g["sharing_labels"].dropna().unique()
+        rows.append([
+            _mono(cond),
+            label,
+            _mono(lab[0]) if len(lab) else "---",
+            f"{int(g['n_distinct_perms_injected'].iloc[0])}",
+            f"{int(g['certified'].sum())} / {len(g)}",
+            _num(float(g["rho_bar"].median()), 4),
+            f"{g['p_mc'].median():.4f}",
+        ])
+    (out / "cat_conditions.tex").write_text(
+        "\\small\n"
+        + _tabular(
+            ["condition", "sharing pattern", "arm labels", "distinct perms.",
+             "certified", r"median $\bar{\rho}$", "median $p$ (MC)"],
+            rows,
+            "lllrrrr",
+        )
+    )
+
+    # ---- analytic null versus Monte Carlo, independent permutations only ---- #
+    ind = ca[ca["condition"] == "independent"]
+    m = int(ind["m_pairs"].iloc[0])
+    rows = [
+        ["groups evaluated", f"{len(ind)}", f"{len(ind)}"],
+        [r"median $|p_{\mathrm{analytic}} - p_{\mathrm{MC}}|$",
+         f"{ind['abs_err_corrected'].median():.4f}", f"{ind['abs_err_naive'].median():.4f}"],
+        [r"max $|p_{\mathrm{analytic}} - p_{\mathrm{MC}}|$",
+         f"{ind['abs_err_corrected'].max():.4f}", f"{ind['abs_err_naive'].max():.4f}"],
+        ["median null SD ratio (analytic / Monte Carlo)",
+         f"{ind['sd_ratio_corrected'].median():.4f}", f"{ind['sd_ratio_naive'].median():.4f}"],
+        [f"SD factor the formula assumes ($m={m}$ pairs)",
+         "$1$", f"$1/\\sqrt{{{m}}} = {1 / np.sqrt(m):.4f}$"],
+    ]
+    (out / "cat_analytic.tex").write_text(
+        "\\small\n"
+        + _tabular(["quantity", "corrected $z$", "naive $z$"], rows, "lrr")
+    )
+
+    # ---- dependence-aware association, with cluster intervals ---- #
+    di = dep[dep["condition"] == "index"]
+
+    def cl(stat: str, cdef: str, scale: float, dec: int) -> str:
+        r = clus.loc[(cdef, stat)]
+        return _ci(scale * float(r["ci_lo"]), scale * float(r["ci_hi"]), dec)
+
+    rows = [
+        [r"median $\rho$(volatility, per-window error)",
+         f"{di['assoc_rho_fstd'].median():.4f}",
+         cl("index_median_rho", "sample_set", 1.0, 4),
+         cl("index_median_rho", "dataset", 1.0, 4)],
+        [r"significant at $\alpha=0.05$, iid approximation (\%)",
+         f"{100 * (di['assoc_p_iid_naive'] < ALPHA).mean():.2f}",
+         cl("index_frac_p_iid_lt_05", "sample_set", 100.0, 2),
+         cl("index_frac_p_iid_lt_05", "dataset", 100.0, 2)],
+        [r"significant at $\alpha=0.05$, block permutation (\%)",
+         f"{100 * (di['assoc_p_block'] < ALPHA).mean():.2f}",
+         cl("index_frac_p_block_lt_05", "sample_set", 100.0, 2),
+         cl("index_frac_p_block_lt_05", "dataset", 100.0, 2)],
+        [r"moving-block bootstrap interval excludes $0$ (\%)",
+         f"{100 * di['assoc_rho_ci_excludes_zero'].mean():.2f}",
+         cl("index_frac_ci_excludes_zero", "sample_set", 100.0, 2),
+         cl("index_frac_ci_excludes_zero", "dataset", 100.0, 2)],
+        [r"median $\rho$, defect $-$ control",
+         _num(float(clus.loc[("sample_set", "defect_minus_control_median"), "point"]), 6),
+         cl("defect_minus_control_median", "sample_set", 1.0, 6),
+         cl("defect_minus_control_median", "dataset", 1.0, 6)],
+        ["clusters resampled",
+         f"{di['cell_id'].nunique()} cells",
+         f"{int(clus.loc[('sample_set', 'index_median_rho'), 'n_clusters'])} sample sets",
+         f"{int(clus.loc[('dataset', 'index_median_rho'), 'n_clusters'])} datasets"],
+    ]
+    (out / "depaware.tex").write_text(
+        "\\small\n"
+        + _tabular(
+            ["statistic over cells", "point", r"95\% CI, sample-set clusters",
+             r"95\% CI, dataset clusters"],
+            rows,
+            "lrrr",
+        )
+    )
+
+    # ---- purge audit at the boundary, worst bucket L=96, H=720 ---- #
+    b = pur[(pur["seq_len"] == 96) & (pur["pred_len"] == 720)
+            & (pur["labels_holdout_eligible"] == 1)]
+    rows = []
+    for mode, label in (("legacy", "legacy, fixed purge"),
+                        ("labels", r"\texttt{labels} (targets disjoint)"),
+                        ("disjoint", r"\texttt{disjoint} (inputs and targets disjoint)")):
+        req = (f"{int(b[mode + '_required_origin_gap'].median())}"
+               if mode + "_required_origin_gap" in b else "---")
+        elig = (f"{int(pur[mode + '_holdout_eligible'].sum())}"
+                if mode + "_holdout_eligible" in pur else "---")
+        rows.append([
+            label,
+            f"{int(b[mode + '_purge_origins'].median())}",
+            req,
+            f"{int(b[mode + '_min_origin_gap_actual'].median())}",
+            f"{int(b[mode + '_shared_timepoints_at_boundary'].median())}",
+            f"{int(b[mode + '_shared_target_points_at_boundary'].median())}",
+            f"{int((pur[mode + '_shared_target_points_at_boundary'] > 0).sum())}",
+            elig,
+        ])
+    (out / "purge_audit.tex").write_text(
+        "\\small\n"
+        + _tabular(
+            ["purge rule", "purged origins", "required gap", "actual gap",
+             "shared time pts.", "shared target pts.", "leaking cells", "eligible cells"],
+            rows,
+            "lrrrrrrr",
+        )
+    )
+
+    # ---- provenance contract: what it catches and what it cannot ---- #
+    hit = cov[cov["detected"] == 1]
+    lines = [
+        "\\footnotesize",
+        "\\begin{tabular}{@{}p{0.44\\linewidth}p{0.26\\linewidth}p{0.20\\linewidth}@{}}",
+        "\\toprule",
+        "injected fault & clause that fires & outcome \\\\",
+        "\\midrule",
+    ]
+    for _, r in hit.iterrows():
+        lines.append(
+            f"{_mono(r['fault'], True)} & {_mono(r['detected_by_field'], True)} & "
+            f"{_mono(r['exception'], True)} \\\\"
+        )
+    lines += [
+        "\\midrule",
+        "\\multicolumn{3}{@{}l@{}}{\\emph{faults the contract accepts without error "
+        "(blind spots)}} \\\\",
+    ]
+    for _, r in cov[cov["detected"] == 0].iterrows():
+        lines.append(f"{_mono(r['fault'], True)} & (none) & {_mono(r['exception'])} \\\\")
+        lines.append(
+            "\\multicolumn{3}{@{}p{0.92\\linewidth}@{}}{\\hspace{1em}\\emph{"
+            + _tex(r["note"])
+            + "}} \\\\"
+        )
+    lines += ["\\bottomrule", "\\end{tabular}"]
+    (out / "contract_coverage.tex").write_text("\n".join(lines))
+    return 6
+
+
 def cmd_tables(cfg: GridConfig, args) -> None:
     out = paper(cfg) / "tables"
     out.mkdir(parents=True, exist_ok=True)
@@ -414,22 +869,26 @@ def cmd_tables(cfg: GridConfig, args) -> None:
             _tabular(header, rows, "rr" + "r" * len(alph) + "r")
         )
 
-    # T2: sensitivity to milder corruptions
+    # T2: sensitivity to milder corruptions, in the flagged direction
     sens = _read(cfg, "aot_sensitivity.csv")
     rows = []
-    for kind, label in (("block", "block-order shuffle, block size"),
-                        ("partial", "partial shuffle, fraction moved")):
+    for kind, label in (("block", "block-order shuffle, block size $b$"),
+                        ("partial", "partial shuffle, fraction $f$ moved")):
         g = sens[sens["kind"] == kind]
         for p, gg in g.groupby("param"):
             ptxt = f"{int(p)}" if kind == "block" else f"{p:.2f}"
+            # order structure left behind: pairs inside a block, or entries not moved
+            kept = 100.0 * (1.0 - 1.0 / p) if kind == "block" else 100.0 * (1.0 - p)
             rows.append(
-                [label, ptxt, f"{len(gg)}", f"{100 * (1 - gg['reject'].mean()):.1f}"]
+                [label, ptxt, f"{kept:.1f}", f"{len(gg)}",
+                 f"{100 * (1 - gg['reject'].mean()):.2f}"]
             )
     (out / "sensitivity.tex").write_text(
         _tabular(
-            ["corruption", "parameter", "sequences", r"detected (\%)"],
-            [[r[0], r[1], r[2], f"{100 - float(r[3]):.1f}"] for r in rows],
-            "llrr",
+            ["corruption", "parameter", r"order structure kept (\%)", "sequences",
+             r"AOT flagged (\%)"],
+            rows,
+            "llrrr",
         )
     )
 
@@ -570,7 +1029,7 @@ def cmd_tables(cfg: GridConfig, args) -> None:
             "lrrrrr",
         )
     )
-    print(f"[tables] 7 tables -> {out}")
+    print(f"[tables] {7 + revision_tables(cfg, out)} tables -> {out}")
 
 
 # --------------------------------------------------------------------------- #

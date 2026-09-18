@@ -1,7 +1,27 @@
 {
+  "backbone": "DLinear",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "DLinear_Weather_h720_revin_s2021_det",
+  "dataset": "Weather",
+  "n_samples": 9820,
   "n_windows": 9820,
   "order": "index",
+  "order_semantics": "dataset_index",
+  "ordered_sample_id_digest": "sha256:1611c927dde7a8222c8304680ede86f145b106fda353ab39bd90188dcdc61cba",
+  "plugin": "revin",
+  "pred_len": 720,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "identity_range",
+    "start": 0
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 96,
   "split": "test",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:71665e7ce1afed38ea0a3c21158b14b586e1f8aa38ad8eaef04cebfae0c0097b"
 }

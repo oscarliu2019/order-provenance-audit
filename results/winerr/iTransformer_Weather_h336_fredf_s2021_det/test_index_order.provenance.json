@@ -1,7 +1,27 @@
 {
+  "backbone": "iTransformer",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "iTransformer_Weather_h336_fredf_s2021_det",
+  "dataset": "Weather",
+  "n_samples": 10204,
   "n_windows": 10204,
   "order": "index",
+  "order_semantics": "dataset_index",
+  "ordered_sample_id_digest": "sha256:11e4431a3fabcf8e2e312c9c89368920535f1c4b35deb48847d38509bf4191ac",
+  "plugin": "fredf",
+  "pred_len": 336,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "identity_range",
+    "start": 0
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 96,
   "split": "test",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:149adeee84d2dfee9b956180e1a05715185ef9c3cd64b5d7d45d9a31e66abeaf"
 }

@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import warnings
 from itertools import combinations
 from pathlib import Path
 
@@ -48,7 +49,55 @@ from src.downstream import (  # noqa: E402
     paired_summary,
 )
 from src.seeds import stable_rng  # noqa: E402
-from src.winerr import ORDER_INDEX, load_series  # noqa: E402
+from src.provenance import (  # noqa: E402
+    IdentityMismatchError,
+    ProvenanceWarning,
+    assert_positional_join_allowed,
+    canonical_sample_ids,
+    compute_ordered_sample_id_digest,
+    is_legacy_sidecar,
+)
+from src.winerr import ORDER_INDEX, load_series as _load_series, read_provenance  # noqa: E402
+
+
+def load_series(win_dir, name, require_order=ORDER_INDEX, expect_n=None, **kw):
+    """Legacy-tolerant read: the archived cells predate the provenance contract."""
+    return _load_series(win_dir, name, require_order, expect_n, legacy_ok=True, **kw)
+
+
+def assert_join_ok(cfg, cell_ids, name, n=None):
+    """Positional stacking across arms is only justified on one ordered sample set."""
+    scs = {str(c): read_provenance(win_dir(cfg, c), name) for c in cell_ids}
+    if any(s is None or is_legacy_sidecar(s) for s in scs.values()):
+        warnings.warn(f"{name}: legacy provenance, positional stack unverified",
+                      ProvenanceWarning, stacklevel=2)
+        return
+    assert_positional_join_allowed(scs, n=n)
+
+
+def assert_feature_join_ok(cfg, cell_id, name, dataset, pred_len, split, n_rows):
+    """A positional feature join needs the error vector to be window origins 0..n-1."""
+    sc = read_provenance(win_dir(cfg, cell_id), name)
+    if sc is None or is_legacy_sidecar(sc):
+        warnings.warn(f"{cell_id}/{name}: legacy provenance, feature join unverified",
+                      ProvenanceWarning, stacklevel=2)
+        return
+    if (str(sc["dataset"]), int(sc["pred_len"]), str(sc["split"])) != (
+            str(dataset), int(pred_len), str(split)):
+        raise IdentityMismatchError(
+            f"{cell_id}/{name}: sidecar is {sc['dataset']}/h{sc['pred_len']}/{sc['split']} but the "
+            f"feature table is {dataset}/h{pred_len}/{split}"
+        )
+    want = compute_ordered_sample_id_digest(
+        canonical_sample_ids(split, sc["seq_len"], sc["pred_len"], range(int(n_rows)),
+                             dataset=sc["dataset"])
+    )
+    if want != sc["ordered_sample_id_digest"]:
+        raise IdentityMismatchError(
+            f"{cell_id}/{name}: the {n_rows} feature rows are not the sample set this vector "
+            f"declares, so a positional join is refused"
+        )
+
 
 ALPHA = 0.05
 
@@ -336,6 +385,7 @@ def cmd_cat(cfg: GridConfig, args) -> None:
         if len(g) < 2:
             continue
         arms, mats = [], []
+        cells: list[str] = []
         n_min = None
         for _, r in g.sort_values("plugin").iterrows():
             try:
@@ -343,10 +393,12 @@ def cmd_cat(cfg: GridConfig, args) -> None:
             except FileNotFoundError:
                 continue
             arms.append(r["plugin"])
+            cells.append(r["cell_id"])
             mats.append(y)
             n_min = y.size if n_min is None else min(n_min, y.size)
         if len(mats) < 2:
             continue
+        assert_join_ok(cfg, cells, "val_index_order", n=n_min)
         mat = np.stack([m[:n_min] for m in mats])
         g_rng = stable_rng("cat", blk, seed, order)
         defect = np.stack([apply_permutation(m, g_rng.permutation(n_min)) for m in mat])
@@ -406,6 +458,10 @@ def cmd_downstream(cfg: GridConfig, args) -> None:
                 f"{r['cell_id']}: feature/error length mismatch "
                 f"val {len(fv)}/{yv.size} test {len(ft)}/{yt.size}"
             )
+        assert_feature_join_ok(cfg, r["cell_id"], "val_index_order", r["dataset"],
+                               int(r["pred_len"]), "val", len(fv))
+        assert_feature_join_ok(cfg, r["cell_id"], "test_index_order", r["dataset"],
+                               int(r["pred_len"]), "test", len(ft))
         xv = fv[FEATURE_COLUMNS].to_numpy()
         xt = ft[FEATURE_COLUMNS].to_numpy()
         if r["val_order"] == "shuffled":
@@ -456,6 +512,7 @@ def cmd_downstream(cfg: GridConfig, args) -> None:
     for (blk, seed, order), g in runs.groupby(["block_id", "seed", "val_order"]):
         g = g.sort_values("plugin")
         arms, vs, ts = [], [], []
+        cells: list[str] = []
         for _, r in g.iterrows():
             d = win_dir(cfg, r["cell_id"])
             try:
@@ -464,10 +521,13 @@ def cmd_downstream(cfg: GridConfig, args) -> None:
             except FileNotFoundError:
                 continue
             arms.append(r["plugin"])
+            cells.append(r["cell_id"])
         if len(arms) < 2:
             continue
         nv = min(v.size for v in vs)
         nt = min(t.size for t in ts)
+        assert_join_ok(cfg, cells, "val_index_order", n=nv)
+        assert_join_ok(cfg, cells, "test_index_order", n=nt)
         val_errs = np.stack([v[:nv] for v in vs])
         test_errs = np.stack([t[:nt] for t in ts])
         ds, h, bk = g.iloc[0]["dataset"], int(g.iloc[0]["pred_len"]), g.iloc[0]["backbone"]

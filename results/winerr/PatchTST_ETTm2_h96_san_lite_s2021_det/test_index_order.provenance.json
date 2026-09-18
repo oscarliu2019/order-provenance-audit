@@ -1,7 +1,27 @@
 {
+  "backbone": "PatchTST",
+  "backfill_commit": "3b5d6b21e5e0e554f5450864cc3ea02268f526d7",
+  "backfill_tool": "tools/backfill_provenance.py",
+  "backfilled": true,
   "cell_id": "PatchTST_ETTm2_h96_san_lite_s2021_det",
+  "dataset": "ETTm2",
+  "n_samples": 11425,
   "n_windows": 11425,
   "order": "index",
+  "order_semantics": "dataset_index",
+  "ordered_sample_id_digest": "sha256:74102c2126ce3485b3bbf0228db2200d2b8cf04fe0164aeda25c789f92e0b664",
+  "plugin": "san_lite",
+  "pred_len": 96,
+  "producer_commit": "unknown",
+  "sample_id_scheme": "window_origin/v1",
+  "sample_id_spec": {
+    "kind": "identity_range",
+    "start": 0
+  },
+  "schema_version": "order-audit/provenance/2",
+  "seed": 2021,
+  "seq_len": 96,
   "split": "test",
-  "val_order": "deterministic"
+  "val_order": "deterministic",
+  "value_digest": "sha256:6aff703668157f08236d26e0ae4fb447dc4522a114bff7a1e93ae0c434c7c3bc"
 }

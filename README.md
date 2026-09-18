@@ -58,7 +58,8 @@ array for a positional join unless the sidecar says `index` order.
 
 ```
 src/            the library
-  winerr.py       order-provenance contract: sidecars, WindowRecorder, load_series
+  provenance.py   the sample-level provenance contract: digests, validation, joins
+  winerr.py       sidecars, WindowRecorder, fail-closed load_series
   detect.py       AOT (exact Wald-Wolfowitz moments) and CAT (Monte-Carlo null)
   downstream.py   T1 difficulty association, T2 per-window arm selection, TOST
   features.py     per-window covariates, computed from the look-back only
@@ -70,9 +71,11 @@ scripts/
   run_grid.py       expand a stage into cells and run them as subprocesses
 tools/
   make_artifacts.py       artefacts -> artifacts/*.csv
+  backfill_provenance.py  migrate pre-contract sidecars (dry run by default)
+  make_contract_coverage.py  what the contract catches -> artifacts/contract_coverage.csv
   paper_assets.py         artifacts -> paper/numbers.tex, tables, figures
   verify_paper_numbers.py independent re-derivation of every claim
-tests/          57 tests; the propositions as executable statements
+tests/          99 tests; the propositions and the contract as executable statements
 artifacts/      every CSV/JSON the paper cites (incl. label_law.csv, the
                 mechanism behind Proposition 7)
 results/
@@ -92,7 +95,7 @@ are in this repository.
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 
-pytest -q                                  # 57 tests, ~15 s
+pytest -q                                  # 99 tests, ~15 s
 python tools/make_artifacts.py aot          # AOT over every stored vector
 python tools/make_artifacts.py cat          # cross-arm agreement
 python tools/verify_paper_numbers.py        # re-derive every number in the paper
@@ -125,30 +128,73 @@ sweep is restartable.
 ## Using the contract in your own code
 
 ```python
-from src.winerr import WindowRecorder, save_series, load_series
+import numpy as np
+from src.winerr import WindowRecorder, save_series, load_series, load_series_with_ids
+from src.provenance import join_by_sample_id
 
 rec = WindowRecorder()                       # streaming: one float per window
 for batch_x, batch_y, index in loader:       # index = dataset indices of the batch
     rec.update(model(batch_x), batch_y, index=index)
 
-save_series(out_dir, "val_index_order", rec.errors_in_index_order(), order="index",
-            dataset="ETTh1", split="val", seq_len=96, pred_len=96)
-save_series(out_dir, "val_loader_order", rec.errors(), order="loader")
+ident = dict(dataset="ETTh1", backbone="DLinear", plugin="none",
+             seq_len=96, pred_len=96, seed=2021)
+err = rec.errors_in_index_order()
+save_series(out_dir, "val_index_order", err, order="index", split="val",
+            window_origins=np.arange(err.size), **ident)
+save_series(out_dir, "val_loader_order", rec.errors(), order="loader", split="val",
+            window_origins=rec.indices(), **ident)   # the observed emission order
 
-err  = load_series(out_dir, "val_index_order")           # index order required
+err  = load_series(out_dir, "val_index_order",
+                   expect={"split": "val", "dataset": "ETTh1", "pred_len": 96})
 mean = load_series(out_dir, "val_loader_order",
                    require_order=None).mean()            # order-symmetric: explicit
+
+a = load_series_with_ids(out_dir, "val_index_order")
+b = load_series_with_ids(other_dir, "val_index_order")
+aligned, sample_ids = join_by_sample_id({"a": a, "b": b})  # never positional
 ```
 
-`load_series` raises `ProvenanceError` when the sidecar is missing, when the order
-is not the one the caller requires, or when the length disagrees. Auditing an
-artefact you did not produce:
+## The provenance contract
 
-```python
-from src.detect import aot, cat
-aot(err)["p"]      # < 1e-6 for every intact overlapping-window sequence we saw
-cat(err_matrix)    # several arms, same windows
+Every per-sample artefact carries a sidecar `<name>.provenance.json` whose fields
+are all mandatory and all checked on read (`src/provenance.py`):
+
+| field | what it stops |
+|---|---|
+| `schema_version` | a reader silently accepting a format it does not understand |
+| `split` | val/test mix-ups (`expect={"split": ...}`) |
+| `n_samples` | truncated or padded arrays |
+| `ordered_sample_id_digest` | a different sample set, or the right set in the wrong order |
+| `value_digest` | edits, rotations, permutations, stale sidecars, swapped files |
+| `order_semantics` | free-text order labels (`dataset_index` / `loader_emission`) |
+| `dataset`/`backbone`/`plugin`/`seq_len`/`pred_len`/`seed` | cell identity |
+| `producer_commit` | an unattributable artefact (explicitly `unknown` when unavailable) |
+
+The canonical sample id is the **window origin** inside its sample space:
+`(dataset, split, seq_len, pred_len, window_origin)`, rebuilt deterministically
+from `sample_id_spec` — `identity_range` for index-order products, and the
+observed `val_perm` array for loader-order products. Consumers join by sample id
+(`join_by_sample_id`); a positional read must first pass
+`assert_positional_join_allowed`, which compares ordered digests.
+
+Reads are fail closed: missing fields, unknown schema versions, digest
+mismatches, split or identity mismatches and unknown order semantics all raise a
+subclass of `ProvenanceError` (`SchemaVersionError`, `DigestMismatchError`,
+`IdentityMismatchError`, `MissingFieldError`, `OrderSemanticsError`). Pre-contract
+sidecars are only readable with an explicit `legacy_ok=True`, which warns.
+
+```bash
+python tools/backfill_provenance.py                  # dry run (default)
+python tools/backfill_provenance.py --apply --verify  # migrate, then re-read strictly
+python tools/make_contract_coverage.py                # artifacts/contract_coverage.csv
 ```
+
+`artifacts/contract_coverage.csv` is generated by actually running each attack:
+20 of 25 faults raise, and the 5 rows with `detected=0` are the honest blind
+spots (a wrong loader order shared by two self-consistent producers, an explicit
+`require_order=None` opt-out with no sidecar, a positional join truncated to
+`n_min`, changed upstream data under unchanged sample ids, and a wrong per-sample
+statistic with a freshly consistent digest).
 
 ## What the tests do and do not certify
 

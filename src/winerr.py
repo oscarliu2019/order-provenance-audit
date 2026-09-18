@@ -22,25 +22,50 @@ Two mechanisms are provided here:
 2. ``save_series`` writes a sidecar provenance record and ``load_series``
    refuses to hand out a vector whose order cannot be established. The point is
    that the two files are byte-indistinguishable without the sidecar: the fix
-   must be a *contract*, not a code comment.
+   must be a *contract*, not a code comment. The contract itself -- schema
+   version, split, sample-set identity, ordered sample-id digest, value digest,
+   order semantics, cell identity, producer commit -- lives in ``src.provenance``.
 """
 
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 import numpy as np
+
+from src.provenance import (  # noqa: F401
+    DECLARED_POSITION_SCHEME,
+    KNOWN_ORDER_SEMANTICS,
+    ORDER_DATASET_INDEX,
+    ORDER_LOADER_EMISSION,
+    SAMPLE_ID_SCHEME,
+    SCHEMA_VERSION,
+    DigestMismatchError,
+    IdentityMismatchError,
+    MissingFieldError,
+    OrderSemanticsError,
+    ProvenanceError,
+    ProvenanceWarning,
+    SchemaVersionError,
+    build_sidecar,
+    canonical_sample_ids,
+    compute_ordered_sample_id_digest,
+    compute_value_digest,
+    is_legacy_sidecar,
+    identity_complete,
+    join_by_sample_id,
+    validate_sidecar,
+)
 
 PROVENANCE_SUFFIX = ".provenance.json"
 ORDER_INDEX = "index"
 ORDER_LOADER = "loader"
 KNOWN_ORDERS = (ORDER_INDEX, ORDER_LOADER)
 
-
-class ProvenanceError(RuntimeError):
-    """Raised when a per-window vector's order cannot be established."""
+ORDER_SEMANTICS_OF = {ORDER_INDEX: ORDER_DATASET_INDEX, ORDER_LOADER: ORDER_LOADER_EMISSION}
 
 
 # --------------------------------------------------------------------------- #
@@ -128,14 +153,31 @@ def _npy(win_dir: Path, name: str) -> Path:
     return Path(win_dir) / f"{name}.npy"
 
 
+def _split_from_name(name: str) -> str | None:
+    for split in ("val", "test", "train"):
+        if str(name).startswith(f"{split}_"):
+            return split
+    return None
+
+
 def save_series(
     win_dir: str | Path,
     name: str,
     values: np.ndarray,
     order: str,
+    *,
+    split: str | None = None,
+    window_origins: Iterable[Any] | None = None,
+    sample_id_spec: Mapping[str, Any] | None = None,
+    dataset: Any = None,
+    backbone: Any = None,
+    plugin: Any = None,
+    seq_len: Any = None,
+    pred_len: Any = None,
+    seed: Any = None,
     **extra: Any,
 ) -> Path:
-    """Write ``values`` plus a sidecar declaring its order.
+    """Write ``values`` plus a contract sidecar that pins order, length, content and identity.
 
     ``np.save`` appends ``.npy`` to any path that lacks it, so the temporary
     file has to be handed over as an already-open file object; otherwise the
@@ -151,7 +193,40 @@ def save_series(
     with open(tmp, "wb") as fh:
         np.save(fh, values)
     tmp.replace(final)
-    rec = {"order": order, "n_windows": int(values.size), **extra}
+
+    split = split if split is not None else _split_from_name(name)
+    if window_origins is None:
+        # no origins supplied: the stored positions are all the producer can attest to
+        origins: Iterable[Any] = np.arange(int(values.size), dtype=np.int64)
+        scheme = SAMPLE_ID_SCHEME if order == ORDER_INDEX else DECLARED_POSITION_SCHEME
+        spec = dict(sample_id_spec or {"kind": "identity_range", "start": 0})
+    else:
+        origins = np.asarray(list(window_origins), dtype=np.int64)
+        scheme = SAMPLE_ID_SCHEME
+        spec = dict(sample_id_spec or {"kind": "inline", "window_origins": [int(o) for o in origins]})
+    rec = build_sidecar(
+        values=values,
+        split=split,
+        window_origins=origins,
+        order_semantics=ORDER_SEMANTICS_OF[order],
+        dataset=dataset,
+        backbone=backbone,
+        plugin=plugin,
+        seq_len=seq_len,
+        pred_len=pred_len,
+        seed=seed,
+        sample_id_scheme=scheme,
+        sample_id_spec=spec,
+        extra={"order": order, "n_windows": int(values.size), **extra},
+    )
+    if not identity_complete(rec):
+        warnings.warn(
+            f"{final}: provenance identity is incomplete "
+            f"(split/dataset/backbone/plugin/seq_len/pred_len/seed partly 'unknown'), so "
+            f"cross-cell sample-set checks will be weak",
+            ProvenanceWarning,
+            stacklevel=2,
+        )
     side = win_dir / f"{name}{PROVENANCE_SUFFIX}"
     tmp_side = win_dir / f".{name}{PROVENANCE_SUFFIX}.tmp"
     tmp_side.write_text(json.dumps(rec, indent=2, sort_keys=True), encoding="utf-8")
@@ -166,40 +241,130 @@ def read_provenance(win_dir: str | Path, name: str) -> dict[str, Any] | None:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def write_provenance(win_dir: str | Path, name: str, rec: Mapping[str, Any]) -> Path:
+    """Atomically replace one sidecar (used by the backfill tool)."""
+    win_dir = Path(win_dir)
+    side = win_dir / f"{name}{PROVENANCE_SUFFIX}"
+    tmp = win_dir / f".{name}{PROVENANCE_SUFFIX}.tmp"
+    tmp.write_text(json.dumps(dict(rec), indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(side)
+    return side
+
+
+def resolve_sample_ids(
+    win_dir: str | Path, sidecar: Mapping[str, Any]
+) -> list[str] | None:
+    """Rebuild the ordered sample id list a sidecar points at, or None if it cannot."""
+    spec = sidecar.get("sample_id_spec") or {}
+    kind = str(spec.get("kind", ""))
+    scheme = str(sidecar.get("sample_id_scheme", SAMPLE_ID_SCHEME))
+    n = int(sidecar.get("n_samples", -1))
+    if kind == "inline" and "sample_ids" in spec:
+        return [str(s) for s in spec["sample_ids"]]
+    if kind == "inline" and "window_origins" in spec:
+        origins: Any = spec["window_origins"]
+    elif kind == "identity_range":
+        origins = np.arange(int(spec.get("start", 0)), int(spec.get("start", 0)) + n)
+    elif kind == "sibling_array":
+        sib = _npy(Path(win_dir), str(spec["name"]))
+        if not sib.exists():
+            raise MissingFieldError(f"{sib}: sample_id_spec points at a missing sibling array")
+        origins = np.load(sib).astype(np.int64)
+    else:
+        return None
+    return canonical_sample_ids(
+        sidecar.get("split"),
+        sidecar.get("seq_len"),
+        sidecar.get("pred_len"),
+        origins,
+        dataset=sidecar.get("dataset"),
+        scheme=scheme,
+    )
+
+
+def _legacy_checks(path: Path, prov: Mapping[str, Any], require_order: str | None,
+                   values: np.ndarray, *, require_order_field: bool = True) -> None:
+    if require_order is not None and (require_order_field or "order" in prov):
+        if prov.get("order") != require_order:
+            raise IdentityMismatchError(
+                f"{path} was recorded in {prov.get('order')!r} order but {require_order!r} order "
+                "is required for a positional join."
+            )
+    if "n_windows" in prov and int(prov.get("n_windows", -1)) != int(values.size):
+        raise IdentityMismatchError(
+            f"{path} declares {prov.get('n_windows')} windows but holds {values.size}"
+        )
+
+
 def load_series(
     win_dir: str | Path,
     name: str,
     require_order: str | None = ORDER_INDEX,
     expect_n: int | None = None,
-) -> np.ndarray:
-    """Load a per-window vector, enforcing the order contract.
+    *,
+    legacy_ok: bool = False,
+    expect: Mapping[str, Any] | None = None,
+    return_sample_ids: bool = False,
+) -> np.ndarray | tuple[np.ndarray, list[str] | None]:
+    """Load a per-sample vector and enforce the provenance contract, fail closed.
 
-    ``require_order=None`` opts out, which is what the pre-fix pipeline did
-    implicitly. Every positional join in this repository passes
-    ``require_order="index"``.
+    ``legacy_ok=True`` is the only way to read a pre-contract sidecar, and it warns.
+    ``require_order=None`` opts out of the order check only; every other clause of the
+    contract is still enforced whenever a sidecar exists.
     """
     path = _npy(win_dir, name)
     if not path.exists():
         raise FileNotFoundError(path)
     values = np.load(path)
-    if require_order is not None:
-        prov = read_provenance(win_dir, name)
-        if prov is None:
-            raise ProvenanceError(
-                f"{path} has no {PROVENANCE_SUFFIX} sidecar: its window order is unknown, so a "
-                "positional join with per-window features is not justified. Re-record it with "
-                "src.train, or load it with require_order=None if you only need order-invariant "
-                "statistics."
+    sample_ids: list[str] | None = None
+    prov = read_provenance(win_dir, name)
+    if prov is None:
+        if require_order is not None:
+            raise MissingFieldError(
+                f"{path} has no {PROVENANCE_SUFFIX} sidecar: its sample set and order are "
+                "unknown, so a positional join with per-window features is not justified. "
+                "Re-record it with src.train, backfill it with tools/backfill_provenance.py, "
+                "or load it with require_order=None if you only need order-invariant statistics."
             )
-        if prov.get("order") != require_order:
-            raise ProvenanceError(
-                f"{path} was recorded in {prov.get('order')!r} order but {require_order!r} order "
-                "is required for a positional join."
+        warnings.warn(
+            f"{path}: no provenance sidecar; accepted only because require_order=None and no "
+            f"sample-level claim is being made",
+            ProvenanceWarning,
+            stacklevel=2,
+        )
+    elif is_legacy_sidecar(prov):
+        if not legacy_ok:
+            raise SchemaVersionError(
+                f"{path}: sidecar predates {SCHEMA_VERSION} (no schema_version field). "
+                "Run tools/backfill_provenance.py --apply, or pass legacy_ok=True to accept "
+                "the weaker order+length checks with a warning."
             )
-        if int(prov.get("n_windows", -1)) != int(values.size):
-            raise ProvenanceError(
-                f"{path} declares {prov.get('n_windows')} windows but holds {values.size}"
-            )
+        warnings.warn(
+            f"{path}: legacy sidecar accepted with legacy_ok=True; only 'order' and "
+            f"'n_windows' are verified, not sample-set identity or content",
+            ProvenanceWarning,
+            stacklevel=2,
+        )
+        _legacy_checks(path, prov, require_order, values)
+    else:
+        sample_ids = resolve_sample_ids(win_dir, prov)
+        want = dict(expect or {})
+        if require_order is not None:
+            want.setdefault("order_semantics", ORDER_SEMANTICS_OF[require_order])
+        validate_sidecar(prov, values, expect=want, sample_ids=sample_ids, label=str(path))
+        _legacy_checks(path, prov, require_order, values, require_order_field=False)
     if expect_n is not None and int(values.size) != int(expect_n):
-        raise ProvenanceError(f"{path}: expected {expect_n} windows, found {values.size}")
+        raise IdentityMismatchError(
+            f"{path}: expected {expect_n} windows, found {values.size}"
+        )
+    if return_sample_ids:
+        return values, sample_ids
     return values
+
+
+def load_series_with_ids(
+    win_dir: str | Path, name: str, require_order: str | None = ORDER_INDEX, **kw: Any
+) -> tuple[np.ndarray, list[str] | None]:
+    """load_series plus the ordered sample ids, for join_by_sample_id."""
+    out = load_series(win_dir, name, require_order, return_sample_ids=True, **kw)
+    return out  # type: ignore[return-value]

@@ -76,6 +76,299 @@ def purged_split(n: int, purge: int, frac: float = 0.5) -> tuple[np.ndarray, np.
     return train, hold
 
 
+PURGE_MODES = ("labels", "disjoint")
+MIN_HOLDOUT_WINDOWS = 200
+
+
+def required_origin_gap(seq_len: int, pred_len: int, purge_mode: str = "disjoint") -> int:
+    """Minimum window-origin separation that makes a train/holdout pair honest.
+
+    ``labels``   the last training target must close before the first holdout
+                 forecast origin, i.e. no shared *target* point: gap >= H.
+    ``disjoint`` no shared time point at all, input included: gap >= L + H.
+    """
+    if purge_mode not in PURGE_MODES:
+        raise ValueError(f"purge_mode must be one of {PURGE_MODES}, got {purge_mode!r}")
+    L, H = int(seq_len), int(pred_len)
+    return H if purge_mode == "labels" else L + H
+
+
+def purge_for_mode(seq_len: int, pred_len: int, purge_mode: str = "disjoint") -> int:
+    """``purged_split`` leaves ``2 * purge + 1`` origins between the two parts."""
+    gap = required_origin_gap(seq_len, pred_len, purge_mode)
+    return int(np.ceil((gap - 1) / 2.0))
+
+
+def window_span(origin: int, seq_len: int, pred_len: int) -> dict[str, int]:
+    """Half-open interval endpoints of one sliding window, in raw time points."""
+    o, L, H = int(origin), int(seq_len), int(pred_len)
+    return {
+        "input_start": o,
+        "input_end": o + L,
+        "target_start": o + L,
+        "target_end": o + L + H,
+        "cover_start": o,
+        "cover_end": o + L + H,
+    }
+
+
+def purge_boundary_audit(
+    train: np.ndarray,
+    hold: np.ndarray,
+    seq_len: int,
+    pred_len: int,
+    purge_mode: str = "disjoint",
+    strict: bool = True,
+) -> dict[str, float]:
+    """Validate a purged split from the interval endpoints it actually produced.
+
+    Nothing here reads the purge constant back: the boundary numbers are derived
+    from ``max(train)`` and ``min(hold)`` so a wrong purge cannot pass silently.
+    """
+    L, H = int(seq_len), int(pred_len)
+    out: dict[str, float] = {
+        "purge_mode": purge_mode,
+        "required_origin_gap": float(required_origin_gap(L, H, purge_mode)),
+        "n_train_windows": float(len(train)),
+        "n_eval_windows": float(len(hold)),
+    }
+    if len(train) == 0 or len(hold) == 0:
+        out.update(
+            {
+                "last_train_origin": float("nan"),
+                "first_eval_origin": float("nan"),
+                "min_origin_gap_actual": float("nan"),
+                "last_train_target_end": float("nan"),
+                "first_eval_input_start": float("nan"),
+                "first_eval_target_start": float("nan"),
+                "shared_timepoints_at_boundary": float("nan"),
+                "shared_target_points_at_boundary": float("nan"),
+                "boundary_ok": 0.0,
+            }
+        )
+        return out
+    a = window_span(int(np.max(train)), L, H)
+    b = window_span(int(np.min(hold)), L, H)
+    gap = b["input_start"] - a["input_start"]
+    shared_all = max(0, a["cover_end"] - b["cover_start"])
+    shared_tgt = max(0, a["target_end"] - b["target_start"])
+    ok = shared_tgt == 0 if purge_mode == "labels" else shared_all == 0
+    out.update(
+        {
+            "last_train_origin": float(a["input_start"]),
+            "first_eval_origin": float(b["input_start"]),
+            "min_origin_gap_actual": float(gap),
+            "last_train_target_end": float(a["target_end"]),
+            "first_eval_input_start": float(b["input_start"]),
+            "first_eval_target_start": float(b["target_start"]),
+            "shared_timepoints_at_boundary": float(shared_all),
+            "shared_target_points_at_boundary": float(shared_tgt),
+            "boundary_ok": float(bool(ok)),
+        }
+    )
+    if strict and not ok:
+        raise AssertionError(
+            f"purge_mode={purge_mode!r} violated: origin gap {gap} < "
+            f"{out['required_origin_gap']:.0f}, shared target points {shared_tgt}, "
+            f"shared time points {shared_all}"
+        )
+    return out
+
+
+def purged_split_audited(
+    n: int,
+    seq_len: int,
+    pred_len: int,
+    purge_mode: str = "disjoint",
+    frac: float = 0.5,
+    min_windows: int = MIN_HOLDOUT_WINDOWS,
+) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+    """Chronological split whose purge is derived from the window span itself.
+
+    The purge is never shrunk to make a cell usable: a cell whose sequence is
+    too short for the rule is reported as ``holdout_eligible = 0`` instead.
+    """
+    n = int(n)
+    purge = purge_for_mode(seq_len, pred_len, purge_mode)
+    cut = int(n * frac)
+    lo = cut - purge
+    hi = cut + purge
+    train = np.arange(0, max(lo, 0))
+    hold = np.arange(min(hi, n), n)
+    audit = purge_boundary_audit(train, hold, seq_len, pred_len, purge_mode, strict=False)
+    eligible = (
+        len(train) >= min_windows
+        and len(hold) >= min_windows
+        and audit["boundary_ok"] == 1.0
+    )
+    audit.update(
+        {
+            "n": float(n),
+            "seq_len": float(seq_len),
+            "pred_len": float(pred_len),
+            "window_cover": float(int(seq_len) + int(pred_len)),
+            "purge_origins": float(purge),
+            "min_windows_required": float(min_windows),
+            "holdout_eligible": float(bool(eligible)),
+        }
+    )
+    if eligible:
+        purge_boundary_audit(train, hold, seq_len, pred_len, purge_mode, strict=True)
+    return train, hold, audit
+
+
+def block_length_for_overlap(n: int, seq_len: int, pred_len: int) -> dict[str, float]:
+    """Block length for a moving-block resample of a stride-1 sliding-window series.
+
+    Two windows are statistically dependent while their spans intersect, i.e. up
+    to ``L + H - 1`` origins apart, so ``L + H`` is the smallest block that can
+    carry the whole dependence range; ``ceil(n^(1/3))`` is the usual consistency
+    floor for block bootstrap and takes over only for very long series.
+    """
+    n = int(n)
+    cover = int(seq_len) + int(pred_len)
+    floor_rule = int(np.ceil(n ** (1.0 / 3.0)))
+    want = max(cover, floor_rule)
+    used = max(1, min(want, n // 2))
+    return {
+        "block_len": float(used),
+        "block_len_requested": float(want),
+        "block_len_cover": float(cover),
+        "block_len_floor": float(floor_rule),
+        "block_len_capped": float(used < want),
+        "n_blocks": float(int(np.ceil(n / used))),
+    }
+
+
+def _rank(a: np.ndarray) -> np.ndarray:
+    return stats.rankdata(a, axis=-1)
+
+
+def _corr_rows(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    a = a - a.mean(axis=-1, keepdims=True)
+    b = b - b.mean(axis=-1, keepdims=True)
+    den = np.sqrt((a**2).sum(axis=-1) * (b**2).sum(axis=-1))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return (a * b).sum(axis=-1) / den
+
+
+def _mbb_indices(n: int, block_len: int, reps: int, rng: np.random.Generator) -> np.ndarray:
+    n_blocks = int(np.ceil(n / block_len))
+    starts = rng.integers(0, n, size=(reps, n_blocks))
+    idx = (starts[:, :, None] + np.arange(block_len)[None, None, :]) % n
+    return idx.reshape(reps, -1)[:, :n]
+
+
+def _cbp_indices(n: int, block_len: int, reps: int, rng: np.random.Generator) -> np.ndarray:
+    base = np.arange(n)
+    bounds = list(range(0, n, block_len)) + [n]
+    out = np.empty((reps, n), dtype=np.int64)
+    for r in range(reps):
+        rolled = np.roll(base, int(rng.integers(n)))
+        order = rng.permutation(len(bounds) - 1)
+        out[r] = np.concatenate([rolled[bounds[k]: bounds[k + 1]] for k in order])
+    return out
+
+
+def association_dep_aware(
+    f: np.ndarray,
+    y: np.ndarray,
+    seq_len: int,
+    pred_len: int,
+    n_boot: int = 2000,
+    n_perm: int = 2000,
+    seed: int = 0,
+    chunk: int = 100,
+) -> dict[str, float]:
+    """Dependence-aware inference for the (window feature, window error) association.
+
+    ``assoc_rho_fstd`` is unchanged and stays purely descriptive. Uncertainty is
+    read off a *circular moving-block bootstrap* of the joined pairs, and the
+    p-value ``assoc_p_block`` comes from a *circular block permutation* null: the
+    error series is cut into whole blocks whose order is shuffled after a random
+    circular shift, which preserves each series' autocorrelation exactly while
+    destroying only the window-to-window alignment that the join asserts. The
+    iid formula is kept as ``assoc_p_iid_naive`` for contrast only.
+    """
+    f = np.asarray(f, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    n = int(f.size)
+    rho = float(stats.spearmanr(f, y).statistic)
+    bl = block_length_for_overlap(n, seq_len, pred_len)
+    b = int(bl["block_len"])
+    rng = np.random.default_rng(seed)
+    rf, ry = stats.rankdata(f), stats.rankdata(y)
+
+    boot = np.empty(n_boot, dtype=np.float64)
+    for c0 in range(0, n_boot, chunk):
+        c1 = min(c0 + chunk, n_boot)
+        idx = _mbb_indices(n, b, c1 - c0, rng)
+        boot[c0:c1] = _corr_rows(_rank(rf[idx]), _rank(ry[idx]))
+    boot_ok = boot[np.isfinite(boot)]
+
+    perm = np.empty(n_perm, dtype=np.float64)
+    for c0 in range(0, n_perm, chunk):
+        c1 = min(c0 + chunk, n_perm)
+        idx = _cbp_indices(n, b, c1 - c0, rng)
+        perm[c0:c1] = _corr_rows(np.broadcast_to(rf, (c1 - c0, n)), ry[idx])
+    perm_ok = perm[np.isfinite(perm)]
+
+    lo, hi = (
+        (float(np.percentile(boot_ok, 2.5)), float(np.percentile(boot_ok, 97.5)))
+        if boot_ok.size
+        else (float("nan"), float("nan"))
+    )
+    p_block = float((1 + int((np.abs(perm_ok) >= abs(rho)).sum())) / (perm_ok.size + 1))
+    side = min((boot_ok <= 0).mean(), (boot_ok >= 0).mean()) if boot_ok.size else float("nan")
+    p_iid = float(2 * stats.norm.sf(abs(rho) * np.sqrt(max(n - 1, 1))))
+    return {
+        "n": int(n),
+        "assoc_rho_fstd": rho,
+        "assoc_rho_ci_lo": lo,
+        "assoc_rho_ci_hi": hi,
+        "assoc_rho_ci_excludes_zero": float(np.isfinite(lo) and np.isfinite(hi) and lo * hi > 0),
+        "assoc_p_block": p_block,
+        "assoc_p_boot_2sided": float(max(2 * side, 1.0 / max(boot_ok.size, 1))),
+        "assoc_p_iid_naive": p_iid,
+        "assoc_p_fstd": p_iid,
+        "boot_rho_mean": float(boot_ok.mean()) if boot_ok.size else float("nan"),
+        "n_boot": int(boot_ok.size),
+        "n_perm": int(perm_ok.size),
+        **bl,
+    }
+
+
+def cluster_bootstrap(
+    values: np.ndarray,
+    clusters: np.ndarray,
+    stat=np.median,
+    n_boot: int = 2000,
+    seed: int = 0,
+) -> dict[str, float]:
+    """Resample whole clusters, not rows: overlapping cells are not replicates."""
+    v = np.asarray(values, dtype=np.float64)
+    c = np.asarray(clusters)
+    keep = np.isfinite(v)
+    v, c = v[keep], c[keep]
+    labels = np.unique(c)
+    groups = [v[c == k] for k in labels]
+    rng = np.random.default_rng(seed)
+    draws = np.empty(n_boot, dtype=np.float64)
+    k = len(groups)
+    for r in range(n_boot):
+        pick = rng.integers(0, k, size=k)
+        draws[r] = stat(np.concatenate([groups[i] for i in pick]))
+    return {
+        "point": float(stat(v)),
+        "ci_lo": float(np.percentile(draws, 2.5)),
+        "ci_hi": float(np.percentile(draws, 97.5)),
+        "boot_median": float(np.median(draws)),
+        "n_clusters": int(k),
+        "n_cells": int(v.size),
+        "n_boot": int(n_boot),
+    }
+
+
 def association(
     x: np.ndarray, y: np.ndarray, columns: list[str], y_raw: np.ndarray | None = None
 ) -> dict[str, float]:
@@ -86,6 +379,10 @@ def association(
     decile. No model is fitted, so nothing here depends on a learner's
     inductive bias -- only on whether row ``i`` of the feature table and entry
     ``i`` of the error vector describe the same window.
+
+    ``assoc_p_fstd`` (alias ``assoc_p_iid_naive``) treats the strongly
+    overlapping windows as iid pairs and is therefore anti-conservative; use
+    :func:`association_dep_aware` for inference and keep this key for contrast.
     """
     n = len(y)
     rho = np.array([stats.spearmanr(x[:, j], y).statistic for j in range(x.shape[1])])
@@ -102,6 +399,7 @@ def association(
         "assoc_abs_rho_mean": float(np.nanmean(np.abs(rho))),
         "assoc_z_fstd": float(rho[fstd] * np.sqrt(max(n - 1, 1))),
         "assoc_p_fstd": float(2 * stats.norm.sf(abs(rho[fstd]) * np.sqrt(max(n - 1, 1)))),
+        "assoc_p_iid_naive": float(2 * stats.norm.sf(abs(rho[fstd]) * np.sqrt(max(n - 1, 1)))),
         "decile_ratio_fstd": float(high.mean() / low.mean()) if low.size and low.mean() > 0 else float("nan"),
         "n": int(n),
     }
@@ -118,8 +416,12 @@ def difficulty_regression(
     perm: np.ndarray,
     columns: list[str],
     seed: int = 0,
-    purge: int = 200,
+    purge: int | None = 200,
     control_perm: np.ndarray | None = None,
+    seq_len: int | None = None,
+    pred_len: int | None = None,
+    purge_mode: str = "disjoint",
+    min_holdout_windows: int = MIN_HOLDOUT_WINDOWS,
 ) -> dict[str, dict[str, float]]:
     """T1 under all three conditions. ``perm`` is the loader visiting order.
 
@@ -138,10 +440,17 @@ def difficulty_regression(
 
     The target is ``log`` error: per-window MSE is heavy tailed and the join
     question concerns ordering information, which a log transform preserves.
+
+    ``purge=None`` switches the holdout split to :func:`purged_split_audited`,
+    whose gap is derived from ``seq_len`` / ``pred_len`` under ``purge_mode``; an
+    ineligible cell reports ``holdout_eligible=0`` and a NaN holdout statistic
+    rather than a shrunken purge.
     """
     if control_perm is None:
         control_perm = np.random.default_rng(seed).permutation(len(x_val))
     control_perm = np.asarray(control_perm, dtype=np.int64)
+    if purge is None and (seq_len is None or pred_len is None):
+        raise ValueError("purge=None requires both seq_len and pred_len")
     y_val_log = np.log(np.maximum(y_val, 1e-12))
     y_test_log = np.log(np.maximum(y_test, 1e-12))
     variants = {
@@ -155,17 +464,29 @@ def difficulty_regression(
         model = _fit_regressor(seed)
         model.fit(xv, yv)
         pred_test = model.predict(x_test)
-        tr, ho = purged_split(len(yv), purge)
-        m2 = _fit_regressor(seed)
-        m2.fit(xv[tr], yv[tr])
-        pred_hold = m2.predict(xv[ho])
+        if purge is None:
+            tr, ho, audit = purged_split_audited(
+                len(yv), seq_len, pred_len, purge_mode, min_windows=min_holdout_windows
+            )
+        else:
+            tr, ho = purged_split(len(yv), purge)
+            audit = {"holdout_eligible": 1.0, "purge_origins": float(purge)}
+        if audit["holdout_eligible"] == 1.0:
+            m2 = _fit_regressor(seed)
+            m2.fit(xv[tr], yv[tr])
+            pred_hold = m2.predict(xv[ho])
+            rho_hold = float(stats.spearmanr(pred_hold, yv[ho]).statistic)
+        else:
+            rho_hold = float("nan")
+        extra = {f"purge_{k}": v for k, v in audit.items()} if purge is None else {}
         out[name] = {
             **stats_d,
             "spearman_test": float(stats.spearmanr(pred_test, y_test_log).statistic),
             "r2_test": _r2(y_test_log, pred_test),
-            "spearman_holdout": float(stats.spearmanr(pred_hold, yv[ho]).statistic),
+            "spearman_holdout": rho_hold,
             "n_val": int(len(yv)),
             "n_test": int(len(y_test_log)),
+            **extra,
         }
     return out
 
@@ -309,9 +630,21 @@ def equivalence_test_clustered(
 __all__ = [
     "CONDITIONS",
     "FEATURE_COLUMNS",
+    "MIN_HOLDOUT_WINDOWS",
+    "PURGE_MODES",
     "arm_selection",
+    "association",
+    "association_dep_aware",
+    "block_length_for_overlap",
+    "cluster_bootstrap",
     "difficulty_regression",
     "equivalence_test",
     "equivalence_test_clustered",
     "paired_summary",
+    "purge_boundary_audit",
+    "purge_for_mode",
+    "purged_split",
+    "purged_split_audited",
+    "required_origin_gap",
+    "window_span",
 ]
