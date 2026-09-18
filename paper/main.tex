@@ -93,32 +93,28 @@ Writing -- original draft, Writing -- review \& editing}
 
 \begin{abstract}
 Per-sample error tables, difficulty analyses, sample-level ablations and
-per-instance routing all join two artefacts written by different parts of a
-pipeline, and they join them positionally. In a widely used forecasting library one
-default---validation shuffles, test does not---turns a per-window artefact taken
-from the validation split into a permutation of the intended vector, and the fault
-survives the usual guards: aggregate metrics and model selection are exactly
-invariant, and the vectors are equally long. Our central result is structural.
-Under uniform shuffling the permuted table is \emph{equal in distribution} to the
-table produced by the canonical shuffled-feature negative control for every
-order-symmetric statistic, so a null validated by that control is as consistent
-with a broken join as with a true null; when the label is derived from several
-independently written vectors, the control instead preserves the label law and no
-longer bounds the damage. Two post-hoc diagnostics recover part of the discarded
-order---an autocorrelation order test with exact randomisation moments, and a
-cross-arm agreement test---but on \NumRuns{} single-GPU runs we map blind spots
-rather than only power: the first flags \NumObsAotFlagPct\% of arms in the real
-defect yet at most \NumSensFlagPartialQuarter\% of injected block and partial
-permutations short of full randomisation, and the second is defeated when two arms
-share a loader order, as
-\NumObsPermPartialShared{} of \NumObsPermGroups{} real defective groups do. The
-primary defence is therefore write-side: a provenance contract that binds each
-array to an ordered sample-identifier digest and fails closed stops
-\NumContractDetected{} of \NumContractFaults{} injected identity faults, and we
-enumerate the \NumContractUndetected{} it misses. Downstream the fault erases a
-real association while the headline metric stays bit-identical, and the one-line
-repair moves reported test error by up to \NumTaxMaxAbs\%. Contract, diagnostics
-and all artefacts are released.
+per-instance routing join artefacts written by different parts of a pipeline, and
+they join them positionally. In a widely used forecasting library one default,
+validation shuffles and test does not, permutes a per-window artefact taken from
+the validation split, and the fault survives the usual guards: aggregate metrics
+and model selection are invariant and the vectors are equally long. Our central
+result is structural: under uniform shuffling the permuted table is \emph{equal in
+distribution} to the table produced by the shuffled-feature negative control for
+every order-symmetric statistic, so a null validated by that control is as
+consistent with a broken join as with a true null. When the label is derived from
+several independently written vectors, the control preserves the label law and no
+longer bounds the damage. Two diagnostics recover discarded order, an
+autocorrelation order test with exact randomisation moments and a cross-arm
+agreement test; on \NumRuns{} runs we map their blind spots: the first flags
+\NumObsAotFlagPct\% of arms in the real defect yet at most
+\NumSensFlagPartialQuarter\% of injected block and partial permutations short of
+full randomisation, and the second is defeated when two arms share a loader order,
+as \NumObsPermPartialShared{} of \NumObsPermGroups{} real defective groups do. The
+primary defence is write-side: a provenance contract that binds each array to an
+ordered sample-identifier digest and fails closed stops \NumContractDetected{} of
+\NumContractFaults{} injected identity faults; we enumerate the
+\NumContractUndetected{} it misses. Contract, diagnostics and artefacts are
+released.
 \end{abstract}
 
 \begin{keywords}
