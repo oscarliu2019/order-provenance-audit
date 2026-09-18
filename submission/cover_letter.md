@@ -97,6 +97,21 @@ relationship in a dedicated declaration so that the overlap can be assessed
 directly. We are happy to supply the companion manuscript to the editors on
 request.
 
+**Relationship to our earlier JSS submission.** An earlier version of this work
+was submitted to JSS as JSSOFTWARE-D-26-02395, “Silent order corruption in
+per-sample evaluation artefacts: why the standard negative control cannot detect
+it, and two tests that can.” On 18 September 2026 we asked the editorial office
+to withdraw it, because reviewing that version would have been a poor use of
+referee time: it framed the two diagnostics as detectors of the fault, whereas
+the evidence in this version shows that the write-side provenance contract is the
+primary defence and that both diagnostics have blind spots we can now measure and
+enumerate. The present submission is that substantially revised manuscript,
+with a new title, a rewritten abstract, the dependence-aware re-analysis, the
+corrected cross-arm variance term and the measured contract coverage. It is
+intended to replace JSSOFTWARE-D-26-02395 rather than to accompany it; if the
+withdrawal has not yet been processed when this reaches you, please treat this
+submission as its replacement.
+
 The work is original, has not been published elsewhere, and is not under
 consideration by another journal. All authors have approved the submission and
 declare no competing interests. Our use of a large language model was limited to
