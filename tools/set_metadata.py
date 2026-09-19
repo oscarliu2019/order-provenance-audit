@@ -9,15 +9,16 @@ corrected value and it overwrites the previous one. It touches four places that
 must never disagree with each other:
 
   paper/main.tex                  Data availability section, ORCID of each author
-  submission/data_availability.md the statement uploaded to Editorial Manager
-  submission/cover_letter.md      the archive sentence
   README.md                       the archive badge line
+  submission/*.md                 only if present; the editorial-correspondence
+                                  files live in the authors' private repository
+                                  and are absent from this public package, in
+                                  which case those steps are skipped
 
-After it runs, rebuild and repackage:
+After it runs, rebuild:
 
     cd paper && pdflatex -interaction=nonstopmode main && bibtex main \
         && pdflatex -interaction=nonstopmode main && pdflatex -interaction=nonstopmode main
-    cd .. && python tools/make_submission.py
 """
 from __future__ import annotations
 
@@ -145,6 +146,15 @@ def set_swhid(rev: str, snp: str | None = None) -> None:
     tex.write_text(s)
 
     da = ROOT / "submission/data_availability.md"
+    if not da.exists():
+        _readme_set(
+            swhid="Archived in Software Heritage: `"
+            + rev
+            + "`"
+            + (f" (visit `{snp}`)." if snp else ".")
+        )
+        print(f"[swhid] {rev} (submission/ absent, skipped)")
+        return
     t = da.read_text()
     t = re.sub(r"\n\nThe repository is also archived permanently in Software Heritage[^\n]*\n(?:[^\n]*\n)?", "\n", t)
     t = t.rstrip() + (
@@ -181,6 +191,10 @@ def set_doi(doi: str) -> None:
     tex.write_text(s)
 
     da = ROOT / "submission/data_availability.md"
+    if not da.exists():
+        _readme_set(doi=f"DOI: [{doi}]({url})")
+        print(f"[doi] {doi} (submission/ absent, skipped)")
+        return
     s = da.read_text()
     s = re.sub(
         r"A permanent, citable archive of this release will be deposited with a DOI\n"

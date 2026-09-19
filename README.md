@@ -81,7 +81,6 @@ tools/
   make_contract_coverage.py  what the contract catches -> artifacts/contract_coverage.csv
   make_cat_revision.py    observed permutations + CAT under controlled sharing
   make_downstream_revision.py dependence-aware and cluster re-analyses, purge audit
-  make_em_forms.py        submission/*.md -> the .docx files Editorial Manager wants
   paper_assets.py         artifacts -> paper/numbers.tex, tables, figures
   verify_paper_numbers.py independent re-derivation of every claim
 tests/          99 tests; the propositions and the contract as executable statements
