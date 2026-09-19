@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "Silent order corruption in per-sample evaluation artefacts: why the standard negative control cannot detect it, and two tests that can"
+title: "Silent order corruption in per-sample evaluation artefacts: control degeneration, diagnostic blind spots, and a provenance contract"
 message: "If you use this software or its artefacts, please cite the manuscript."
 authors:
   - family-names: Liu
