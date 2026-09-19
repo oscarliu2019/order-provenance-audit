@@ -119,7 +119,11 @@ None（正文 Funding 一节同口径）。
   本次是按上述理由重写后的新版本。
 - 是否有重叠/关联稿件：Yes —— 投往 Information Sciences 的 companion 稿件共用实验
   基础设施，但问题与结论不重叠；正文 "Relation to other work by the authors" 一节
-  已列出共用项与各自独有贡献。
+  已列出共用项与各自独有贡献。**2026-09-19 更新**：该 companion 已于 2026-09-19
+  经新版 Elsevier 平台正式投出 Information Sciences（平台状态 "Submission Received
+  via Ingest"，稿号待编辑部分配），题名 "Large per-window oracle headroom that three
+  selector families did not convert: a feedback-delay audit of plug-in selection for
+  time series forecasting"；若编辑部问起，可直接给这一口径。
 - 生成式 AI 使用：正文 "Declaration of generative AI" 一节已披露。
 
 ### 上传清单
